@@ -21,7 +21,33 @@ defmodule OffBroadway.EMQTT.OptionsTest do
         ]
       ]
 
-      assert {:ok, ^opts} = NimbleOptions.validate(opts, Options.definition())
+      assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
+    end
+
+    test "basic authentication" do
+      opts = [
+        config: [
+          host: "test.mosquitto.org",
+          port: 1883,
+          username: "rw",
+          password: "readwrite"
+        ]
+      ]
+
+      assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
+    end
+
+    test "validation fails when host is missing" do
+      opts = [
+        config: [
+          port: 1883,
+          username: "rw",
+          password: "readwrite"
+        ]
+      ]
+
+      assert {:error, %{message: message}} = NimbleOptions.validate(opts, Options.definition())
+      assert message =~ "required :host option not found"
     end
   end
 end

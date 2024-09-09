@@ -31,6 +31,7 @@ defmodule OffBroadway.EMQTT.ConnectTest do
 
     test "at port 1884 using credentials" do
       {:ok, pid} = :emqtt.start_link(@opts_1884)
+      IO.inspect(@opts_1884)
 
       assert {:ok, _} = :emqtt.connect(pid)
       stop_emqtt(pid)
@@ -45,7 +46,6 @@ defmodule OffBroadway.EMQTT.ConnectTest do
 
     test "at port 8884 using TLS, ca cert and client cert" do
       {:ok, pid} = :emqtt.start_link(@opts_8884)
-      IO.inspect(@opts_8884)
 
       assert {:ok, _} = :emqtt.connect(pid)
       stop_emqtt(pid)

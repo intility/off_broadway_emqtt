@@ -3,6 +3,21 @@ defmodule OffBroadway.EMQTT.Options do
 
   def definition do
     [
+      buffer_size: [
+        doc: "The maximum number of messages that can be buffered",
+        type: :pos_integer,
+        default: 1000
+      ],
+      buffer_overflow_strategy: [
+        doc: "The strategy to use when the buffer is full",
+        type: {:in, [:reject, :drop_head]},
+        default: :reject
+      ],
+      topics: [
+        doc: "The topics to subscribe to",
+        type: {:list, :string},
+        default: []
+      ],
       config: [
         type: :non_empty_keyword_list,
         keys: [
@@ -26,8 +41,7 @@ defmodule OffBroadway.EMQTT.Options do
           ],
           ssl: [
             doc: "Whether to use SSL",
-            type: :boolean,
-            default: false
+            type: :boolean
           ],
           ssl_opts: [
             type: :keyword_list,
@@ -58,7 +72,10 @@ defmodule OffBroadway.EMQTT.Options do
             ]
           ]
         ]
-      ]
+      ],
+      # For testing purposes
+      test_pid: [type: :pid, doc: false],
+      message_server: [type: :pid, doc: false]
     ]
   end
 end
