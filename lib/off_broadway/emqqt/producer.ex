@@ -37,6 +37,12 @@ defmodule OffBroadway.EMQTT.Producer do
         with {:ok, config} <- Keyword.fetch(opts, :config),
              {host, config} <- Keyword.pop(config, :host),
              config <- Keyword.put(config, :host, to_charlist(host)) do
+          # FIXME - Set these automatically based on producer
+          # - name
+          # - owner (process to which messages are sent) - use self()?
+          # - clientid
+          # - cast proto_ver to string if required
+
           IO.inspect(broadway_opts)
           # Start the `:emqtt` process as part of the supervision tree
           {[%{id: :emqtt, start: {:emqtt, :start_link, [config]}}],

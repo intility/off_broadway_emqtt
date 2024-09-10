@@ -1,4 +1,4 @@
-# OffBroadwayEMQTT
+# OffBroadway.EMQTT
 
 ## Building
 
