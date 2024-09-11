@@ -1,9 +1,17 @@
 defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
   # import ExUnit.CaptureLog
+  @broadway_opts buffer_size: 50,
+                 buffer_overflow_strategy: :reject,
+                 config: [
+                   host: "test.mosquitto.org",
+                   port: 1884,
+                   username: "rw",
+                   password: "readwrite"
+                 ],
+                 test_pid: self()
 
   require Logger
-  # alias OffBroadway.EMQTT.Producer
 
   defmodule MessageServer do
     def start_link, do: Agent.start_link(fn -> [] end)
@@ -20,7 +28,10 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       message
     end
 
-    def handle_batch(_, messages, _, _), do: messages
+    def handle_batch(_, messages, _, _) do
+      IO.inspect("Received a batch of #{length(messages)} messages")
+      messages
+    end
   end
 
   defp prepare_for_start_module_opts(module_opts) do
@@ -40,22 +51,9 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   end
 
   defp start_broadway(message_server, broadway_name \\ unique_name(), opts \\ []) do
-    {_client, opts} = Keyword.pop(opts, :client)
-
     Broadway.start_link(
       Forwarder,
-      broadway_opts(broadway_name, opts,
-        buffer_size: 50,
-        buffer_overflow_strategy: :reject,
-        config: [
-          host: "test.mosquitto.org",
-          port: 1883,
-          username: "rw",
-          password: "readwrite"
-        ],
-        test_pid: self(),
-        message_server: message_server
-      )
+      broadway_opts(broadway_name, opts, @broadway_opts ++ [message_server: message_server])
     )
   end
 
@@ -77,13 +75,13 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         concurrency: 1
       ],
       processors: [
-        default: [concurrency: 1]
+        default: [concurrency: 3]
       ],
       batchers: [
         default: [
-          batch_size: 10,
+          batch_size: 100,
           batch_timeout: 50,
-          concurrency: 1
+          concurrency: 2
         ]
       ]
     ]
@@ -92,14 +90,45 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   defp unique_name(), do: :"Broadway#{System.unique_integer([:positive, :monotonic])}"
 
   describe "prepare_for_start/2 validation" do
-    test "when :host is not present" do
+    test "when :config is not present" do
       assert_raise(
         ArgumentError,
-        ~r/required :host option not found, received options: \[\]/,
+        ~r/invalid configuration given to OffBroadway.EMQTT.Producer/,
         fn ->
           prepare_for_start_module_opts([])
         end
       )
+    end
+
+    test "when config :host is not present" do
+      assert_raise(
+        ArgumentError,
+        ~r/required :host option not found/,
+        fn ->
+          prepare_for_start_module_opts(config: [username: "rw"])
+        end
+      )
+    end
+
+    test "when valid config is present" do
+      assert {[%{id: :emqtt}], [producer: _]} =
+               prepare_for_start_module_opts(
+                 config: [
+                   host: "test.mosquitto.org",
+                   username: "rw",
+                   password: "readwrite"
+                 ]
+               )
+    end
+  end
+
+  describe "producer" do
+    test "starts :emqtt as part of its supervision tree" do
+      name = unique_name()
+      {:ok, pid} = start_broadway(nil, name, @broadway_opts ++ [topics: [{"#", 1}]])
+
+      Process.sleep(10_000)
+      stop_broadway(pid)
     end
   end
 end

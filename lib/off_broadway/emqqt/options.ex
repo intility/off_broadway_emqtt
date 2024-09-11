@@ -1,6 +1,18 @@
 defmodule OffBroadway.EMQTT.Options do
   @moduledoc false
 
+  @qos [
+    0,
+    1,
+    2,
+    :qos0,
+    :qos1,
+    :qos2,
+    :at_most_once,
+    :at_least_once,
+    :exactly_once
+  ]
+
   def definition do
     [
       buffer_size: [
@@ -15,12 +27,18 @@ defmodule OffBroadway.EMQTT.Options do
       ],
       topics: [
         doc: "The topics to subscribe to",
-        type: {:list, :string},
+        type: {:list, {:tuple, [:string, {:custom, __MODULE__, :type_subopt, [[{:name, :name}]]}]}},
         default: []
+      ],
+      message_handler: [
+        doc: "A `GenServer` that implements the `OffBroadway.EMQTT.MessageHandler` behaviour",
+        type: :mod_arg,
+        default: {OffBroadway.EMQTT.MessageHandler, []}
       ],
       config: [
         doc: "Configuration options that will be sent to the `:emqtt` process.",
         type: :non_empty_keyword_list,
+        required: true,
         keys: [
           host: [
             doc: "The host of the MQTT broker",
@@ -74,18 +92,22 @@ defmodule OffBroadway.EMQTT.Options do
           ],
           ws_path: [
             doc: "The path to the resource.",
-            type: :string,
-            default: "/mqtt"
+            type: :string
           ],
           connect_timeout: [
             doc: "The timeout in milliseconds for the connection",
             type: :pos_integer,
-            default: 60_000
+            default: 60
           ],
           bridge_mode: [
             doc: "Enable bridge mode or not.",
             type: :boolean,
             default: false
+          ],
+          clientid: [
+            doc: "Specify the client identifier.",
+            type: :string,
+            default: :emqtt.random_client_id()
           ],
           clean_start: [
             doc: "Whether the server should discard any existing sessions and start a new one.",
@@ -120,7 +142,7 @@ defmodule OffBroadway.EMQTT.Options do
             a response.
             """,
             type: :pos_integer,
-            default: 30_000
+            default: 30
           ],
           will_topic: [
             doc: """
@@ -144,15 +166,14 @@ defmodule OffBroadway.EMQTT.Options do
             default: 0
           ],
           auto_ack: [
-            doc:
-              "The client process will automacally send ack packages like `PUBACK` when receiving a packet.",
+            doc: "The client process will automacally send ack packages like `PUBACK` when receiving a packet.",
             type: :boolean,
             default: true
           ],
           ack_timeout: [
             doc: "The timeout in milliseconds for the ack package.",
             type: :pos_integer,
-            default: 30_000
+            default: 30
           ],
           force_ping: [
             doc: """
@@ -173,7 +194,22 @@ defmodule OffBroadway.EMQTT.Options do
       ],
       # For testing purposes
       test_pid: [type: :pid, doc: false],
-      message_server: [type: :pid, doc: false]
+      message_server: [type: {:or, [:pid, nil]}, doc: false]
     ]
+  end
+
+  def type_subopt(value, [{:name, _}]) when value in @qos, do: {:ok, value}
+  def type_subopt({:rh, qos} = value, [{:name, _}]) when qos in [0, 1, 2], do: {:ok, value}
+  def type_subopt({:qos, qos} = value, [{:name, _}]) when qos in [0, 1, 2], do: {:ok, value}
+
+  def type_subopt({:rap, boolean} = value, [{:name, _}]) when is_boolean(boolean),
+    do: {:ok, value}
+
+  def type_subopt({:nl, boolean} = value, [{:name, _}]) when is_boolean(boolean),
+    do: {:ok, value}
+
+  def type_subopt(value, [{:name, name}]) do
+    IO.inspect(value)
+    {:error, "#{inspect(value)} is not a valid subopt value for #{name}"}
   end
 end

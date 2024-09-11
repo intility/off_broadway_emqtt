@@ -24,7 +24,31 @@ defmodule OffBroadway.EMQTT.OptionsTest do
       assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
     end
 
-    test "basic authentication" do
+    test "topic validations succeeds" do
+      opts = [
+        topics: [
+          {"commands/topic", 0},
+          {"commands/topic", 1},
+          {"commands/topic", 2},
+          {"commands/topic", :qos0},
+          {"commands/topic", :qos1},
+          {"commands/topic", :qos2},
+          {"commands/topic", :at_most_once},
+          {"commands/topic", :at_least_once},
+          {"commands/topic", :exactly_once},
+          {"commands/topic", {:rh, 0}},
+          {"commands/topic", {:rh, 1}},
+          {"commands/topic", {:rh, 2}},
+          {"commands/topic", {:rap, true}},
+          {"commands/topic", {:nl, true}}
+        ],
+        config: [host: "test.mosquitto.org"]
+      ]
+
+      assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
+    end
+
+    test ":emqtt basic authentication" do
       opts = [
         config: [
           host: "test.mosquitto.org",
@@ -37,7 +61,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
       assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
     end
 
-    test "validation fails when host is missing" do
+    test ":emqtt validation fails when host is missing" do
       opts = [
         config: [
           port: 1883,
