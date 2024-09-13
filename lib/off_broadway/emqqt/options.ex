@@ -18,7 +18,7 @@ defmodule OffBroadway.EMQTT.Options do
       buffer_size: [
         doc: "The maximum number of messages that can be buffered",
         type: :pos_integer,
-        default: 1000
+        default: 10_000
       ],
       buffer_overflow_strategy: [
         doc: "The strategy to use when the buffer is full",
@@ -95,7 +95,7 @@ defmodule OffBroadway.EMQTT.Options do
             type: :string
           ],
           connect_timeout: [
-            doc: "The timeout in milliseconds for the connection",
+            doc: "The timeout in seconds for the connection",
             type: :pos_integer,
             default: 60
           ],
@@ -121,7 +121,7 @@ defmodule OffBroadway.EMQTT.Options do
           ],
           keepalive: [
             doc: """
-            The maximum time interval in milliseconds that is permitted to elapse between the client
+            The maximum time interval in seconds that is permitted to elapse between the client
             finishes transmitting one MQTT Control Packet and starts sending the next. Will be
             replaced by server `keepalive` from MQTT server.
             """,
@@ -138,7 +138,7 @@ defmodule OffBroadway.EMQTT.Options do
           ],
           retry_interval: [
             doc: """
-            Interval in milliseconds to retry sending packets that have been sent but not received
+            Interval in seconds to retry sending packets that have been sent but not received
             a response.
             """,
             type: :pos_integer,
@@ -171,7 +171,7 @@ defmodule OffBroadway.EMQTT.Options do
             default: true
           ],
           ack_timeout: [
-            doc: "The timeout in milliseconds for the ack package.",
+            doc: "The timeout in seconds for the ack package.",
             type: :pos_integer,
             default: 30
           ],
@@ -209,7 +209,6 @@ defmodule OffBroadway.EMQTT.Options do
     do: {:ok, value}
 
   def type_subopt(value, [{:name, name}]) do
-    IO.inspect(value)
     {:error, "#{inspect(value)} is not a valid subopt value for #{name}"}
   end
 end

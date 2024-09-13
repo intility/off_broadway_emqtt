@@ -111,7 +111,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     end
 
     test "when valid config is present" do
-      assert {[%{id: :emqtt}], [producer: _]} =
+      assert {[%{id: :message_handler}, %{id: :emqtt}], [producer: _]} =
                prepare_for_start_module_opts(
                  config: [
                    host: "test.mosquitto.org",

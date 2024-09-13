@@ -6,18 +6,37 @@ defmodule OffBroadway.EMQTT.MessageHandler do
 
   @type message() :: term()
   @type reason_code() :: term()
+  @type broadway() :: atom() | {:via, module(), term()}
 
-  @callback handle_message(message :: message(), opts :: keyword()) :: any() | mfa()
+  @doc """
+  Messages received from the MQTT broker are passed to this function.
+  """
+  @callback handle_message(message :: message(), broadway :: broadway(), opts :: keyword()) :: any() | mfa()
+
+  @doc """
+  `PUBREL` messages received from the MQTT broker are passed to this function.
+  """
   @callback handle_pubrel(pubrel :: map()) :: any() | mfa()
+
+  @doc """
+  Callback invoked after a successful connection to the MQTT broker.
+  """
   @callback handle_connect(properties :: term()) :: any() | mfa()
+
+  @doc """
+  Callback invoked after a disconnect from the MQTT broker.
+  """
   @callback handle_disconnect({reason :: reason_code(), properties :: term()} | atom()) ::
               any() | mfa()
 
-  @behaviour Broadway.Acknowledger
-  use GenServer
+  @doc """
+  Callback invoked from the producer to ask for messages to be processed.
+  """
+  @callback receive_messages(demand :: non_neg_integer(), opts :: keyword()) :: [Broadway.Message.t()]
 
   defmacro __using__(_opts) do
     quote do
+      use GenServer
       @behaviour OffBroadway.EMQTT.MessageHandler
 
       @impl OffBroadway.EMQTT.MessageHandler
@@ -29,57 +48,79 @@ defmodule OffBroadway.EMQTT.MessageHandler do
         do: OffBroadway.EMQTT.MessageHandler.handle_disconnect(properties)
 
       @impl OffBroadway.EMQTT.MessageHandler
-      def handle_message(message, opts),
-        do: OffBroadway.EMQTT.MessageHandler.handle_message(properties, opts)
+      def handle_message(message, broadway, opts),
+        do: OffBroadway.EMQTT.MessageHandler.handle_message(properties, broadway, opts)
 
       @impl OffBroadway.EMQTT.MessageHandler
       def handle_pubrel(pubrel), do: OffBroadway.EMQTT.MessageHandler.handle_pubrel(properties)
 
-      # @impl Broadway.Acknowledger
-      # def ack(ack_ref, successful, failed), do: Broadway.Acknowledger.ack(ack_ref, successful, failed)
+      @impl OffBroadway.EMQTT.MessageHandler
+      def receive_message(demand, opts), do: OffBroadway.EMQTT.MessageHandler.reveive_message(demand, opts)
 
       defoverridable handle_connect: 1
       defoverridable handle_disconnect: 1
       defoverridable handle_message: 2
       defoverridable handle_pubrel: 1
+      defoverridable receive_message: 2
     end
   end
+
+  use GenServer
+  require Logger
+  @behaviour Broadway.Acknowledger
 
   def start_link(opts) do
     with {_, client_opts} <- get_in(opts, [:producer, :module]),
          {:ok, name} <- Keyword.fetch(client_opts, :message_handler_name) do
-      GenServer.start_link(__MODULE__, %{}, name: name)
+      GenServer.start_link(__MODULE__, client_opts, name: name)
     end
   end
 
   @impl GenServer
   def init(params) do
-    {:ok, params}
+    with {:ok, buffer_size} <- Keyword.fetch(params, :buffer_size),
+         {:ok, overflow_strategy} <- Keyword.fetch(params, :buffer_overflow_strategy),
+         counters <- :counters.new(2, [:atomics]),
+         :ok <- :counters.put(counters, 2, buffer_size) do
+      {:ok,
+       %{
+         queue: :queue.new(),
+         counters: counters,
+         buffer_size: buffer_size,
+         overflow_strategy: overflow_strategy
+       }}
+    end
   end
 
   @impl GenServer
-  def handle_call({:demand, demand}, _from, state) do
-    # TODO Dequeue messages
-    IO.inspect("Receive demand #{demand}")
-    {:reply, [1, 2, 3, 4], state}
+  def handle_call({:dequeue, demand}, _from, state) do
+    case dequeue(state.queue, demand) do
+      {:error, :empty, queue} -> {:reply, [], %{state | queue: queue}}
+      {:ok, messages, queue} -> {:reply, messages, %{state | queue: queue}}
+    end
   end
 
-  def handle_connect(_properties) do
-    IO.puts("Connected")
+  @impl GenServer
+  def handle_cast({:enqueue, message, ack_ref}, state) do
+    # FIXME Implement overflow strategy
+    new_queue = enqueue(state.queue, build_message(message, ack_ref))
+    :counters.add(state.counters, 1, 1)
+    {:noreply, %{state | queue: new_queue}}
   end
 
-  def handle_disconnect(_reason) do
-    IO.puts("Disconnected")
-  end
+  def handle_connect(_properties), do: Logger.info("Connected to MQTT broker")
+  def handle_disconnect(_reason), do: Logger.info("Disconnected from MQTT broker")
+  def handle_pubrel(_pubrel), do: Logger.debug("PUBREL received from MQTT broker")
 
-  def handle_message(message, opts) do
-    {ack_ref, _opts} = Keyword.pop(opts, :ack_ref)
-    # TODO Queue and push messages
-    push_message(message, ack_ref)
-  end
-
-  def handle_pubrel(_pubrel) do
-    IO.puts("Pubrel received")
+  def handle_message(message, ack_ref, opts) do
+    with {:ok, config} <- Keyword.fetch(opts, :config),
+         handler <- OffBroadway.EMQTT.Producer.message_handler_process_name(config[:clientid]),
+         pid when is_pid(pid) <- GenServer.whereis(handler) do
+      GenServer.cast(pid, {:enqueue, message, ack_ref})
+    else
+      reason ->
+        Logger.error("Failed to enqueue message: #{inspect(reason)}")
+    end
   end
 
   @impl Broadway.Acknowledger
@@ -108,9 +149,21 @@ defmodule OffBroadway.EMQTT.MessageHandler do
     )
   end
 
-  defp push_message(message, ack_ref) do
+  defp enqueue(queue, %Broadway.Message{} = message), do: :queue.in(message, queue)
+
+  defp dequeue(queue, n), do: dequeue(queue, n, [])
+  defp dequeue(queue, 0, acc), do: {:ok, Enum.reverse(acc), queue}
+
+  defp dequeue(queue, n, acc) when n > 0 do
+    case :queue.out(queue) do
+      {:empty, queue} -> {:error, :empty, queue}
+      {{:value, item}, queue} -> dequeue(queue, n - 1, [item | acc])
+    end
+  end
+
+  defp build_message(message, ack_ref) do
     acknowledger = build_acknowledger(message, ack_ref)
-    Broadway.push_messages(ack_ref, [%Broadway.Message{data: message, acknowledger: acknowledger}])
+    %Broadway.Message{data: message, acknowledger: acknowledger}
   end
 
   defp build_acknowledger(message, ack_ref) do
