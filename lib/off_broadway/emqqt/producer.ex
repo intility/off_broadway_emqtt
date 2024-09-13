@@ -83,7 +83,7 @@ defmodule OffBroadway.EMQTT.Producer do
               start: {elem(handler, 0), :start_link, [elem(handler, 1) ++ with_default_opts]}
             },
             %{
-              id: :emqtt,
+              id: :emqtt_server,
               start: {:emqtt, :start_link, [config ++ [msg_handler: emqtt_message_handler(broadway, new_opts)]]}
             }
           ]
@@ -120,14 +120,15 @@ defmodule OffBroadway.EMQTT.Producer do
   defp emqtt_subscribe(emqtt, topic) when is_tuple(topic),
     do: :emqtt.subscribe(emqtt, topic)
 
-  # TODO User should be able to define their own message handler
   @spec emqtt_message_handler(atom() | tuple(), Keyword.t()) :: map()
   defp emqtt_message_handler(broadway, opts) do
+    {message_handler, args} = opts[:message_handler]
+
     %{
-      connected: {OffBroadway.EMQTT.MessageHandler, :handle_connect, []},
-      disconnected: {OffBroadway.EMQTT.MessageHandler, :handle_disconnect, []},
-      publish: {OffBroadway.EMQTT.MessageHandler, :handle_message, [broadway, opts]},
-      pubrel: {OffBroadway.EMQTT.MessageHandler, :handle_pubrel, []}
+      connected: {message_handler, :handle_connect, args},
+      disconnected: {message_handler, :handle_disconnect, args},
+      publish: {message_handler, :handle_message, args ++ [broadway, opts]},
+      pubrel: {message_handler, :handle_pubrel, args}
     }
   end
 
@@ -140,7 +141,7 @@ defmodule OffBroadway.EMQTT.Producer do
   def handle_demand(demand, state) do
     # TODO Use receive_messages callback
     messages = GenServer.call(state.message_handler, {:dequeue, demand})
-    {:noreply, messages, state}
+    {:noreply, messages, %{state | demand: demand - length(messages)}}
   end
 
   @impl true

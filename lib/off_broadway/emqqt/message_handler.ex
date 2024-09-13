@@ -1,7 +1,11 @@
 defmodule OffBroadway.EMQTT.MessageHandler do
   @moduledoc """
-  A custom message handler for the `:emqtt` producer can be used by
-  implementing this behaviour.
+  Behaviour for handling messages received from the MQTT broker.
+  The default implementation is a `GenServer` that keeps messages received from the broker
+  in a queue. Whenever the producer asks for messages, the handler will dequeue them from the queue
+  and return them to the producer.
+
+  Custom message handlers can be implemented by defining a module that implements this behaviour.
   """
 
   @type message() :: term()
@@ -80,12 +84,14 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   def init(params) do
     with {:ok, buffer_size} <- Keyword.fetch(params, :buffer_size),
          {:ok, overflow_strategy} <- Keyword.fetch(params, :buffer_overflow_strategy),
+         client_id <- get_in(params, [:config, :clientid]),
          counters <- :counters.new(2, [:atomics]),
          :ok <- :counters.put(counters, 2, buffer_size) do
       {:ok,
        %{
          queue: :queue.new(),
          counters: counters,
+         client_id: client_id,
          buffer_size: buffer_size,
          overflow_strategy: overflow_strategy
        }}
@@ -95,17 +101,32 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   @impl GenServer
   def handle_call({:dequeue, demand}, _from, state) do
     case dequeue(state.queue, demand) do
-      {:error, :empty, queue} -> {:reply, [], %{state | queue: queue}}
-      {:ok, messages, queue} -> {:reply, messages, %{state | queue: queue}}
+      {:error, :empty, queue} ->
+        {:reply, [], %{state | queue: queue}}
+
+      {:ok, messages, queue} ->
+        :counters.sub(state.counters, 1, length(messages))
+        {:reply, messages, %{state | queue: queue}}
     end
   end
 
   @impl GenServer
   def handle_cast({:enqueue, message, ack_ref}, state) do
-    # FIXME Implement overflow strategy
-    new_queue = enqueue(state.queue, build_message(message, ack_ref))
-    :counters.add(state.counters, 1, 1)
-    {:noreply, %{state | queue: new_queue}}
+    case {:counters.get(state.counters, 1), state.overflow_strategy} do
+      {count, :reject} when count >= state.buffer_size ->
+        Logger.info("Buffer for client #{state.client_id} is full, rejecting message")
+        {:noreply, state}
+
+      {count, :drop_head} when count >= state.buffer_size ->
+        Logger.info("Buffer for client #{state.client_id} is full, dropping head message")
+        new_queue = enqueue(:queue.drop(state.queue), build_message(message, ack_ref))
+        {:noreply, %{state | queue: new_queue}}
+
+      {_, _} ->
+        new_queue = enqueue(state.queue, build_message(message, ack_ref))
+        :counters.add(state.counters, 1, 1)
+        {:noreply, %{state | queue: new_queue}}
+    end
   end
 
   def handle_connect(_properties), do: Logger.info("Connected to MQTT broker")
@@ -151,6 +172,9 @@ defmodule OffBroadway.EMQTT.MessageHandler do
 
   defp enqueue(queue, %Broadway.Message{} = message), do: :queue.in(message, queue)
 
+  # We could use :queue.split/2 here, but it is O(n). This implementation is
+  # also O(n), where n is the number of messages to dequeue. Maybe :queue.split/2 is
+  # better after all?
   defp dequeue(queue, n), do: dequeue(queue, n, [])
   defp dequeue(queue, 0, acc), do: {:ok, Enum.reverse(acc), queue}
 
