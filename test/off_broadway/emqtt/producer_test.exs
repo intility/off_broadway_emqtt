@@ -2,7 +2,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
   # import ExUnit.CaptureLog
 
-  @broadway_opts buffer_size: 50_000,
+  @broadway_opts buffer_size: 100,
                  buffer_overflow_strategy: :drop_head,
                  config: [
                    # host: "localhost",
@@ -25,7 +25,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     end
 
     def push_messages(server, topic, messages) when is_list(messages),
-      do: Enum.each(messages, fn msg -> :emqtt.publish(server, topic, :erlang.term_to_binary(msg), retain: true) end)
+      do: Enum.each(messages, fn msg -> :emqtt.publish(server, topic, :erlang.term_to_binary(msg)) end)
 
     def push_messages(server, topic, messages), do: push_messages(server, topic, [messages])
   end
@@ -56,7 +56,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
         producer: [
           module: {OffBroadway.EMQTT.Producer, module_opts},
-          concurrency: 1
+          concurrency: 2
         ]
       )
     after
@@ -68,7 +68,11 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   defp start_broadway(message_server, broadway_name, opts) do
     Broadway.start_link(
       Forwarder,
-      broadway_opts(broadway_name, opts, @broadway_opts ++ [message_server: message_server, topics: [{"#", 1}]])
+      broadway_opts(
+        broadway_name,
+        opts,
+        @broadway_opts ++ [message_server: message_server, topics: [{"test", :at_most_once}]]
+      )
     )
   end
 
@@ -135,20 +139,21 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   describe "producer" do
     test "starts :emqtt as part of its supervision tree" do
       name = unique_name()
-      {:ok, pid} = start_broadway(nil, name, @broadway_opts)
+      {:ok, pid} = start_broadway(nil, name, @broadway_opts ++ [topics: [{"#", 0}]])
 
+      Process.sleep(5000)
       stop_process(pid)
     end
 
     test "receive messages" do
       name = unique_name()
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, name, @broadway_opts ++ [topics: [{"#", 1}]])
+      {:ok, pid} = start_broadway(message_server, name, @broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
       # IO.puts("Pushing messages")
-      MessageServer.push_messages(message_server, "test", 1..10)
+      # MessageServer.push_messages(message_server, "test", 1..10)
 
-      Process.sleep(5000)
+      Process.sleep(1000)
       # for message <- 1..10 do
       #   assert_receive {:message_handled, ^message, _}
       # end

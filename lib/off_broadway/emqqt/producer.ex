@@ -26,8 +26,10 @@ defmodule OffBroadway.EMQTT.Producer do
   @impl true
   def init(opts) do
     try do
-      with emqtt <- Process.whereis(opts[:config][:name]),
+      with client_id <- get_in(opts, [:config, :name]),
+           emqtt <- Process.whereis(client_id),
            message_handler <- Process.whereis(opts[:message_handler_name]),
+           {message_handler_mod, _} <- opts[:message_handler],
            {:ok, _properties} <- :emqtt.connect(emqtt) do
         {:producer,
          %{
@@ -35,9 +37,10 @@ defmodule OffBroadway.EMQTT.Producer do
            drain: false,
            topics: opts[:topics],
            emqtt: emqtt,
-           emqtt_client_id: opts[:config][:name],
+           emqtt_client_id: client_id,
            emqtt_subscribed: false,
            message_handler: message_handler,
+           message_handler_mod: message_handler_mod,
            receive_timer: nil,
            receive_interval: 100,
            broadway: opts[:broadway][:name]
@@ -70,14 +73,13 @@ defmodule OffBroadway.EMQTT.Producer do
             on_failure: :noop
           })
 
-          new_opts = Keyword.put(opts, :config, config)
+          new_opts =
+            Keyword.put(opts, :config, config)
+            |> Keyword.put(:counter, :counters.new(2, [:atomics]))
+            |> Keyword.put(:message_handler_name, message_handler_process_name(client_id))
 
           with_default_opts =
-            put_in(
-              broadway_opts,
-              [:producer, :module],
-              {producer_module, Keyword.put(new_opts, :message_handler_name, message_handler_process_name(client_id))}
-            )
+            put_in(broadway_opts, [:producer, :module], {producer_module, new_opts})
 
           children = [
             %{
@@ -98,6 +100,12 @@ defmodule OffBroadway.EMQTT.Producer do
     end
   end
 
+  @spec message_handler_process_name(String.t()) :: atom()
+  def message_handler_process_name(client_id), do: String.to_atom(client_id <> "_message_handler")
+
+  @spec emqtt_process_name(String.t()) :: atom()
+  def emqtt_process_name(client_id), do: String.to_atom(client_id)
+
   defp format_error(%ValidationError{keys_path: [], message: message}) do
     "invalid configuration given to OffBroadway.EMQTT.Producer.prepare_for_start/2, " <>
       message
@@ -107,12 +115,6 @@ defmodule OffBroadway.EMQTT.Producer do
     "invalid configuration given to OffBroadway.EMQTT.Producer.prepare_for_start/2 for key #{inspect(keys_path)}, " <>
       message
   end
-
-  @spec emqtt_process_name(String.t()) :: atom()
-  def message_handler_process_name(client_id), do: String.to_atom(client_id <> "_message_handler")
-
-  @spec emqtt_process_name(String.t()) :: atom()
-  def emqtt_process_name(client_id), do: String.to_atom(client_id)
 
   @spec emqtt_subscribe(pid(), {String.t(), term()}) ::
           {:ok, port(), [pos_integer()]} | {:error, term()}
@@ -164,7 +166,8 @@ defmodule OffBroadway.EMQTT.Producer do
       [:off_broadway_emqtt, :receive_messages],
       metadata,
       fn ->
-        with messages <- GenServer.call(state.message_handler, {:dequeue, state.demand}),
+        with opts <- Keyword.new(broadway: state.broadway, client_id: state.emqtt_client_id),
+             messages <- apply(state.message_handler_mod, :receive_messages, [state.demand, opts]),
              count <- length(messages) do
           {messages, Map.put(metadata, :received, count)}
         end
