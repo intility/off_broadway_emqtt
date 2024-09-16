@@ -1,4 +1,5 @@
 defmodule OffBroadway.EMQTT.MixProject do
+  nil
   use Mix.Project
 
   @version "0.1.0"

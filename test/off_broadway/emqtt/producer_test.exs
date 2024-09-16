@@ -5,11 +5,12 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   @broadway_opts buffer_size: 50_000,
                  buffer_overflow_strategy: :drop_head,
                  config: [
-                   host: "localhost",
-                   # host: "test.mosquitto.org",
+                   # host: "localhost",
+                   host: "test.mosquitto.org",
                    port: 1884,
                    username: "rw",
-                   password: "readwrite"
+                   password: "readwrite",
+                   clientid: "producer-test"
                  ],
                  test_pid: self()
 
@@ -17,13 +18,16 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
   defmodule MessageServer do
     def start_link do
-      with {:ok, pid} <- :emqtt.start_link(host: ~c"localhost", port: 1883),
+      with {:ok, pid} <- :emqtt.start_link(host: ~c"localhost", port: 1883, clientid: "message-server"),
            {:ok, _} <- :emqtt.connect(pid) do
         {:ok, pid}
       end
     end
 
-    def push_messages(server, topic, message), do: :emqtt.publish(server, topic, :erlang.term_to_binary(message))
+    def push_messages(server, topic, messages) when is_list(messages),
+      do: Enum.each(messages, fn msg -> :emqtt.publish(server, topic, :erlang.term_to_binary(msg), retain: true) end)
+
+    def push_messages(server, topic, messages), do: push_messages(server, topic, [messages])
   end
 
   defmodule Forwarder do
@@ -33,7 +37,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     def init(opts), do: {:ok, opts}
 
     def handle_message(_, message, %{test_pid: pid}) do
-      IO.inspect(message, label: "received message")
+      IO.inspect("Received message: #{inspect(message.data)}")
       send(pid, {:message_handled, message.data, message.metadata})
       message
     end
@@ -131,7 +135,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   describe "producer" do
     test "starts :emqtt as part of its supervision tree" do
       name = unique_name()
-      {:ok, pid} = start_broadway(nil, name, @broadway_opts ++ [topics: [{"#", 1}]])
+      {:ok, pid} = start_broadway(nil, name, @broadway_opts)
 
       stop_process(pid)
     end
@@ -141,11 +145,13 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, name, @broadway_opts ++ [topics: [{"#", 1}]])
 
-      for message <- 1..10 do
-        MessageServer.push_messages(message_server, "test", message)
-      end
+      # IO.puts("Pushing messages")
+      MessageServer.push_messages(message_server, "test", 1..10)
 
       Process.sleep(5000)
+      # for message <- 1..10 do
+      #   assert_receive {:message_handled, ^message, _}
+      # end
       stop_process(pid)
     end
   end

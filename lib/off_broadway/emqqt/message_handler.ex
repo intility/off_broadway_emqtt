@@ -75,14 +75,16 @@ defmodule OffBroadway.EMQTT.MessageHandler do
 
   def start_link(opts) do
     with {_, client_opts} <- get_in(opts, [:producer, :module]),
+         {:ok, broadway} <- Keyword.fetch(opts, :name),
          {:ok, name} <- Keyword.fetch(client_opts, :message_handler_name) do
-      GenServer.start_link(__MODULE__, client_opts, name: name)
+      GenServer.start_link(__MODULE__, client_opts ++ [broadway: broadway], name: name)
     end
   end
 
   @impl GenServer
   def init(params) do
-    with {:ok, buffer_size} <- Keyword.fetch(params, :buffer_size),
+    with {:ok, broadway} <- Keyword.fetch(params, :broadway),
+         {:ok, buffer_size} <- Keyword.fetch(params, :buffer_size),
          {:ok, overflow_strategy} <- Keyword.fetch(params, :buffer_overflow_strategy),
          client_id <- get_in(params, [:config, :clientid]),
          counters <- :counters.new(2, [:atomics]),
@@ -90,6 +92,7 @@ defmodule OffBroadway.EMQTT.MessageHandler do
       {:ok,
        %{
          queue: :queue.new(),
+         broadway: broadway,
          counters: counters,
          client_id: client_id,
          buffer_size: buffer_size,
@@ -102,10 +105,13 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   def handle_call({:dequeue, demand}, _from, state) do
     case dequeue(state.queue, demand) do
       {:error, :empty, queue} ->
+        IO.inspect("Queue is empty")
         {:reply, [], %{state | queue: queue}}
 
       {:ok, messages, queue} ->
         :counters.sub(state.counters, 1, length(messages))
+        IO.inspect("Dequeued #{length(messages)} messages")
+        # Broadway.push_messages(state.broadway, messages)
         {:reply, messages, %{state | queue: queue}}
     end
   end
@@ -133,12 +139,17 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   def handle_disconnect(_reason), do: Logger.info("Disconnected from MQTT broker")
   def handle_pubrel(_pubrel), do: Logger.debug("PUBREL received from MQTT broker")
 
-  def handle_message(message, ack_ref, opts) do
+  def handle_message(message, broadway, opts) do
     with {:ok, config} <- Keyword.fetch(opts, :config),
          handler <- OffBroadway.EMQTT.Producer.message_handler_process_name(config[:clientid]),
          pid when is_pid(pid) <- GenServer.whereis(handler) do
-      GenServer.cast(pid, {:enqueue, message, ack_ref})
+      IO.inspect("Forwarding message to #{handler}")
+      GenServer.cast(pid, {:enqueue, message, broadway})
     else
+      nil ->
+        Logger.error("Failed to enqueue message: handler not found, shutting down")
+        Broadway.stop(broadway, :shutdown)
+
       reason ->
         Logger.error("Failed to enqueue message: #{inspect(reason)}")
     end

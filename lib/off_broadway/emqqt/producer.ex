@@ -38,6 +38,8 @@ defmodule OffBroadway.EMQTT.Producer do
            emqtt_client_id: opts[:config][:name],
            emqtt_subscribed: false,
            message_handler: message_handler,
+           receive_timer: nil,
+           receive_interval: 100,
            broadway: opts[:broadway][:name]
          }}
       else
@@ -118,7 +120,11 @@ defmodule OffBroadway.EMQTT.Producer do
     do: Enum.map(topics, &emqtt_subscribe(emqtt, &1))
 
   defp emqtt_subscribe(emqtt, topic) when is_tuple(topic),
-    do: :emqtt.subscribe(emqtt, topic)
+    do: {:ok, _, _} = :emqtt.subscribe(emqtt, topic)
+
+  @spec schedule_receive_messages(interval :: non_neg_integer()) :: reference()
+  defp schedule_receive_messages(interval),
+    do: Process.send_after(self(), :receive_messages, interval)
 
   @spec emqtt_message_handler(atom() | tuple(), Keyword.t()) :: map()
   defp emqtt_message_handler(broadway, opts) do
@@ -132,18 +138,54 @@ defmodule OffBroadway.EMQTT.Producer do
     }
   end
 
-  @impl true
-  def handle_demand(_demand, %{emqtt_subscribed: false} = state) do
-    emqtt_subscribe(state.emqtt, state.topics)
-    {:noreply, [], %{state | emqtt_subscribed: true}}
+  defp handle_receive_messages(%{drain: true} = state), do: {:noreply, [], state}
+
+  defp handle_receive_messages(%{demand: demand, receive_timer: nil} = state) when demand > 0 do
+    messages = receive_messages_from_handler(state)
+
+    receive_timer =
+      case length(messages) do
+        0 ->
+          IO.inspect("empty messages, scheduling receive_messages")
+          schedule_receive_messages(state.receive_interval)
+
+        _ ->
+          IO.inspect("non-empty messages, scheduling receive_messages")
+          schedule_receive_messages(0)
+      end
+
+    {:noreply, messages, %{state | demand: state.demand - length(messages), receive_timer: receive_timer}}
   end
 
-  def handle_demand(demand, state) do
-    # TODO Use receive_messages callback
-    messages = GenServer.call(state.message_handler, {:dequeue, demand})
-    {:noreply, messages, %{state | demand: demand - length(messages)}}
+  defp receive_messages_from_handler(state) do
+    metadata = %{demand: state.demand}
+
+    :telemetry.span(
+      [:off_broadway_emqtt, :receive_messages],
+      metadata,
+      fn ->
+        with messages <- GenServer.call(state.message_handler, {:dequeue, state.demand}),
+             count <- length(messages) do
+          {messages, Map.put(metadata, :received, count)}
+        end
+      end
+    )
   end
 
   @impl true
-  def handle_info(_message, state), do: {:noreply, state}
+  def handle_demand(demand, %{receive_timer: timer} = state) do
+    timer && Process.cancel_timer(timer)
+
+    unless state.emqtt_subscribed,
+      do: emqtt_subscribe(state.emqtt, state.topics)
+
+    handle_receive_messages(%{state | demand: state.demand + demand, receive_timer: nil})
+  end
+
+  @impl true
+  def handle_info(:receive_messages, %{receive_timer: timer} = state) do
+    timer && Process.cancel_timer(timer)
+    IO.inspect("Received messages timer fired")
+    handle_receive_messages(%{state | receive_timer: nil})
+  end
 end

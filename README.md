@@ -20,7 +20,7 @@ by adding `off_broadway_emqtt` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:off_broadway_emqtt, "~> 0.1.0"}
+    {:off_broadway_emqtt, "~> 0.1.0", system_env: [{"BUILD_WITHOUT_QUIC", "1"}]}
   ]
 end
 ```

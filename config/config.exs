@@ -5,7 +5,7 @@ case config_env() do
     config :logger, level: :info
 
   :test ->
-    config :logger, level: :debug
+    config :logger, level: :info
 
   _ ->
     :ok
