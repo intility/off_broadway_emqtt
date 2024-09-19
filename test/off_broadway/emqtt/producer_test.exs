@@ -2,7 +2,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
   # import ExUnit.CaptureLog
 
-  @broadway_opts buffer_size: 100,
+  @broadway_opts buffer_size: 10000,
                  buffer_overflow_strategy: :drop_head,
                  config: [
                    # host: "localhost",
@@ -24,10 +24,9 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       end
     end
 
-    def push_messages(server, topic, messages) when is_list(messages),
-      do: Enum.each(messages, fn msg -> :emqtt.publish(server, topic, :erlang.term_to_binary(msg)) end)
-
-    def push_messages(server, topic, messages), do: push_messages(server, topic, [messages])
+    def push_messages(server, topic, messages) do
+      for message <- messages, do: :emqtt.publish(server, topic, :erlang.term_to_binary(message))
+    end
   end
 
   defmodule Forwarder do
@@ -37,32 +36,25 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     def init(opts), do: {:ok, opts}
 
     def handle_message(_, message, %{test_pid: pid}) do
-      IO.inspect("Received message: #{inspect(message.data)}")
+      # IO.inspect("Received message: #{inspect(message.data)}")
       send(pid, {:message_handled, message.data, message.metadata})
       message
     end
 
-    def handle_batch(_, messages, _, _) do
+    def handle_batch(_, messages, _, %{test_pid: pid}) do
       IO.inspect("Received a batch of #{length(messages)} messages")
+      send(pid, {:batch_handled, length(messages)})
       messages
     end
   end
 
   defp prepare_for_start_module_opts(module_opts) do
-    # {:ok, message_server} = MessageServer.start_link()
-    # {:ok, pid} = start_broadway(message_server, unique_name(), @broadway_opts ++ [topics: [{"#", 1}]])
-
-    try do
-      OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
-        producer: [
-          module: {OffBroadway.EMQTT.Producer, module_opts},
-          concurrency: 2
-        ]
-      )
-    after
-      :ok
-      # stop_process(pid)
-    end
+    OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
+      producer: [
+        module: {OffBroadway.EMQTT.Producer, module_opts},
+        concurrency: 2
+      ]
+    )
   end
 
   defp start_broadway(message_server, broadway_name, opts) do
@@ -91,16 +83,16 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       context: %{test_pid: self()},
       producer: [
         module: {OffBroadway.EMQTT.Producer, Keyword.merge(producer_opts, opts)},
-        concurrency: 1
+        concurrency: 10
       ],
       processors: [
-        default: [concurrency: 3]
+        default: [concurrency: 20]
       ],
       batchers: [
         default: [
-          batch_size: 100,
+          batch_size: 1000,
           batch_timeout: 50,
-          concurrency: 2
+          concurrency: 10
         ]
       ]
     ]
@@ -141,7 +133,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       name = unique_name()
       {:ok, pid} = start_broadway(nil, name, @broadway_opts ++ [topics: [{"#", 0}]])
 
-      Process.sleep(5000)
+      Process.sleep(:timer.seconds(60))
       stop_process(pid)
     end
 
@@ -150,13 +142,15 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, name, @broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
-      # IO.puts("Pushing messages")
-      # MessageServer.push_messages(message_server, "test", 1..10)
+      IO.puts("Pushing messages")
+      MessageServer.push_messages(message_server, "test", 1..5)
 
-      Process.sleep(1000)
-      # for message <- 1..10 do
-      #   assert_receive {:message_handled, ^message, _}
-      # end
+      Process.sleep(100)
+
+      for message <- 1..5 do
+        assert_receive {:message_handled, _, _}
+      end
+
       stop_process(pid)
     end
   end

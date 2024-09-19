@@ -31,9 +31,9 @@ defmodule OffBroadway.EMQTT.Options do
         default: []
       ],
       message_handler: [
-        doc: "A `GenServer` that implements the `OffBroadway.EMQTT.MessageHandler` behaviour",
-        type: :mod_arg,
-        default: {OffBroadway.EMQTT.MessageHandler, []}
+        doc: "A module that implements the `OffBroadway.EMQTT.MessageHandler` behaviour",
+        type: {:or, [:atom, :mod_arg]},
+        default: OffBroadway.EMQTT.MessageHandler
       ],
       config: [
         doc: "Configuration options that will be sent to the `:emqtt` process.",
