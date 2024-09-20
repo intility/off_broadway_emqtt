@@ -17,8 +17,6 @@ defmodule MyBroadway do
       name: __MODULE__,
       producer: [
         module: {OffBroadway.EMQTT.Producer, 
-           buffer_size: 10_000,
-           buffer_overflow_strategy: :drop_head,
            topics: [
              {"test/topic1", :exactly_once},
              {"test/topic2", :at_most_once},
