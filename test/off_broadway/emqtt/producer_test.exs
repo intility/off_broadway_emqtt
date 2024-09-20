@@ -145,7 +145,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
       Process.sleep(100)
 
-      for message <- 1..5 do
+      for _message <- 1..5 do
         assert_receive {:message_handled, _, _}
       end
 
