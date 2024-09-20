@@ -44,8 +44,7 @@ defmodule OffBroadway.EMQTT.Broker do
       :ordered_set,
       :named_table,
       :public,
-      {:read_concurrency, true},
-      {:write_concurrency, true}
+      {:read_concurrency, true}
     ])
 
     {:noreply, state, {:continue, :subscribe_to_topics}}
