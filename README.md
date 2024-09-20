@@ -55,6 +55,7 @@ defmodule MyBroadway do
     IO.inspect(message, label: "Handled message from producer")
   end
   
+  @impl true
   def handle_batch(_, messages, _, _) do 
     IO.inspect("Received a batch of #{length(messages)} messages", label: "Handled batch from producer")
     messages
