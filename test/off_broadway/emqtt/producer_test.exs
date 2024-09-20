@@ -5,7 +5,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
                  buffer_overflow_strategy: :drop_head,
                  config: [
                    host: "localhost",
-                   # host: "test.mosquitto.org",
                    port: 1884,
                    username: "rw",
                    password: "readwrite",
@@ -35,13 +34,11 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     def init(opts), do: {:ok, opts}
 
     def handle_message(_, message, %{test_pid: pid}) do
-      # IO.inspect("Received message: #{inspect(message.data)}")
       send(pid, {:message_handled, message.data, message.metadata})
       message
     end
 
     def handle_batch(_, messages, _, %{test_pid: pid}) do
-      IO.inspect("Received a batch of #{length(messages)} messages")
       send(pid, {:batch_handled, length(messages)})
       messages
     end
@@ -119,23 +116,9 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         end
       )
     end
-
-    # FIXME: This test is failing for some reason
-    # test "when valid config is present" do
-    #   assert {[%{id: :message_handler}, %{id: :emqtt_server}], [producer: _]} =
-    #            prepare_for_start_module_opts(config: [host: "localhost", username: "rw", password: "readwrite"])
-    # end
   end
 
   describe "producer" do
-    test "starts :emqtt as part of its supervision tree" do
-      name = unique_name()
-      {:ok, pid} = start_broadway(nil, name, @broadway_opts ++ [topics: [{"#", 0}]])
-
-      # Process.sleep(:timer.seconds(60))
-      stop_process(pid)
-    end
-
     test "receive messages" do
       name = unique_name()
       {:ok, message_server} = MessageServer.start_link()
