@@ -16,15 +16,15 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-20.04
-    services:
-      mosquitto:
-        image: eclipse-mosquitto:2.0
-        ports:
-          - "1883:1883"
-          - "1884:1884"
-        # volumes:
-        #   - ${{ github.workspace }}/.moquitto:/mosquitto/config
-        options: --name mqtt
+    # services:
+    #   mosquitto:
+    #     image: eclipse-mosquitto:2.0
+    #     ports:
+    #       - "1883:1883"
+    #       - "1884:1884"
+    #     # volumes:
+    #     #   - ${{ github.workspace }}/.moquitto:/mosquitto/config
+    #     options: --name mqtt
     strategy:
       fail-fast: false
       matrix:
@@ -41,14 +41,20 @@ jobs:
       - name: Check out this repository
         uses: actions/checkout@v4
 
-      - name: Copy Mosquitto config
-        run: docker cp -a ${{ github.workspace }}/.mosquitto mqtt:/mosquitto/config
+      - name: Start the Mosquitto MQTT broker
+        run: |
+          docker run \
+          --name mqtt \
+          -v ${{ github.workspace }}./mosquitto:/mosquitto/config \
+          -p 1883:1883 \
+          -p 1884:1884 \
+          eclipse-mosquitto:2.0
 
       # Ensure to restart MQTT after checkout to correctly bind the config volume
-      - name: Restart MQTT
-        uses: docker://docker
-        with:
-          args: docker restart mqtt
+      # - name: Restart MQTT
+      #   uses: docker://docker
+      #   with:
+      #     args: docker restart mqtt
 
       - run: docker inspect mqtt
       - run: docker container exec mqtt cat /mosquitto/config/mosquitto.conf
