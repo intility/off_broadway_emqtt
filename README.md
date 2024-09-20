@@ -5,6 +5,13 @@
 
 An MQTT connector based on [emqtt](https://github.com/emqx/emqtt) for [Broadway](https://github.com/dashbitco/broadway).
 
+MQTT (Message Queuing Telemetry Transport) is a lightweight messaging protocol designed for small sensors and mobile devices 
+with limited bandwidth. MQTT is commonly used in IoT (Internet of Things), home and industrial automation, healthcare and energy management
+amongst others.
+
+Several well-known systems and cloud providers provides MQTT broker services that can be used to build automation systems, such as 
+Amazon Web Services (AWS IoT), Microsoft Azure (IoT Hub, Event Grid), IBM Watson IoT Platform and Eclipse Mosquitto.
+
 ## Usage
 
 ``` elixir
