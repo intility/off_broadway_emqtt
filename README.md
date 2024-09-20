@@ -9,7 +9,7 @@ MQTT (Message Queuing Telemetry Transport) is a lightweight messaging protocol d
 with limited bandwidth. MQTT is commonly used in IoT (Internet of Things), home and industrial automation, healthcare and energy management
 amongst others.
 
-Several well-known systems and cloud providers provides MQTT broker services that can be used to build automation systems, such as 
+Several well-known systems and cloud providers provides MQTT broker services that can be used to build automation systems. These includes
 Amazon Web Services (AWS IoT), Microsoft Azure (IoT Hub, Event Grid), IBM Watson IoT Platform and Eclipse Mosquitto.
 
 ## Usage
