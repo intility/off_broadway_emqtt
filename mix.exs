@@ -3,7 +3,7 @@ defmodule OffBroadway.EMQTT.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @description "A MQTT connector based on emqtt for Broadway."
+  @description "An MQTT connector based on emqtt for Broadway."
   @source_url "https://github.com/Intility/off_broadway_emqtt"
 
   def project do
