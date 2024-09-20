@@ -25,9 +25,9 @@ defmodule MyBroadway do
       producer: [
         module: {OffBroadway.EMQTT.Producer, 
            topics: [
-             {"test/topic1", :exactly_once},
-             {"test/topic2", :at_most_once},
-             {"test/topic3", :at_least_once},
+             {"test/topic2", :at_most_once},  # QoS 0
+             {"test/topic3", :at_least_once}, # QoS 1
+             {"test/topic1", :exactly_once}   # QoS 2
            ],
            config: [
              host: "test.mosquitto.org",
