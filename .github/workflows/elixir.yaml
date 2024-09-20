@@ -41,17 +41,17 @@ jobs:
       - name: Check out this repository
         uses: actions/checkout@v4
 
+      # Ensure to restart MQTT after checkout to correctly bind the config volume
+      - name: Restart MQTT
+        uses: docker://docker
+        with:
+          args: restart mqtt
+
       - name: Set up Erlang and Elixir
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{matrix.otp}}
           elixir-version: ${{ matrix.elixir }}
-
-      # Ensure to restart MQTT after checkout to correctly bind the config volume
-      - name: Restart MQTT
-        uses: docker://docker
-        with:
-          args: docker restart mqtt
 
       - name: Cache Mix dependencies
         uses: actions/cache@v3
