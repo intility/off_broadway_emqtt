@@ -45,7 +45,7 @@ jobs:
         run: |
           docker run \
           --name mqtt \
-          -v ${{ github.workspace }}./mosquitto:/mosquitto/config \
+          -v ${{ github.workspace }}/.mosquitto:/mosquitto/config \
           -p 1883:1883 \
           -p 1884:1884 \
           eclipse-mosquitto:2.0
