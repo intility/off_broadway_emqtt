@@ -42,14 +42,12 @@ jobs:
         uses: actions/checkout@v4
 
       # Ensure to restart MQTT after checkout to correctly bind the config volume
-      - name: Restart MQTT
-        run: docker restart mqtt
-        # uses: docker://docker
-        # with:
-        #   args: docker restart mqtt
+      # - name: Restart MQTT
+      #   uses: docker://docker
+      #   with:
+      #     args: docker restart mqtt
 
       - run: docker inspect mqtt
-      # - run: docker container exec mqtt ls /mosquitto/config
 
       - name: Set up Erlang and Elixir
         uses: erlef/setup-beam@v1
