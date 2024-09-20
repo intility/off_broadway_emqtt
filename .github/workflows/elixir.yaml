@@ -41,11 +41,14 @@ jobs:
       - name: Check out this repository
         uses: actions/checkout@v4
 
+      - name: Copy Mosquitto config
+        run: docker cp ${{ github.workspace }}/.mosquitto/* mqtt:/mosquitto/config
+
       # Ensure to restart MQTT after checkout to correctly bind the config volume
-      # - name: Restart MQTT
-      #   uses: docker://docker
-      #   with:
-      #     args: docker restart mqtt
+      - name: Restart MQTT
+        uses: docker://docker
+        with:
+          args: docker restart mqtt
 
       - run: docker inspect mqtt
 
