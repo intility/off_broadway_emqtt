@@ -120,9 +120,8 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
   describe "producer" do
     test "receive messages" do
-      name = unique_name()
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, name, @broadway_opts ++ [topics: [{"#", :at_least_once}]])
+      {:ok, pid} = start_broadway(message_server, unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
       MessageServer.push_messages(message_server, "test", 1..5)
 
@@ -132,6 +131,29 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         assert_receive {:message_handled, _, _}
       end
 
+      stop_process(pid)
+    end
+
+    test "emits telemetry events" do
+      self = self()
+      {:ok, message_server} = MessageServer.start_link()
+      {:ok, pid} = start_broadway(message_server, unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
+      :telemetry.attach(
+        "telemetry-events",
+        [:off_broadway_emqtt, :receive_messages, :start],
+        fn name, measurements, metadata, _ ->
+          send(self, {:telemetry_event, name, measurements, metadata})
+        end,
+        nil
+      )
+
+      MessageServer.push_messages(message_server, "test", [1])
+
+      assert_receive {:telemetry_event, [:off_broadway_emqtt, :receive_messages, :start],
+                      %{system_time: _, monotonic_time: _}, %{client_id: "producer-test"}}
+
+      :telemetry.detach("telemetry-events")
       stop_process(pid)
     end
   end
