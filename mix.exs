@@ -29,6 +29,14 @@ defmodule OffBroadway.EMQTT.MixProject do
           "Changelog.md",
           "LICENSE"
         ]
+      ],
+      dialyzer: [flags: [:underspecs, :unknown]],
+      test_coverage: [tool: ExCoveralls],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test
       ]
     ]
   end
@@ -50,7 +58,9 @@ defmodule OffBroadway.EMQTT.MixProject do
       {:emqtt, "~> 1.11"},
       {:cowlib, "~> 2.13", override: true},
       {:ex_doc, "~> 0.34.2", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", only: :dev}
+      {:credo, "~> 1.7", only: :dev},
+      {:dialyxir, "~> 1.4", only: :dev},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 end
