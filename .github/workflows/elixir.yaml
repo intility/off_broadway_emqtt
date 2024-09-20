@@ -43,11 +43,12 @@ jobs:
 
       # Ensure to restart MQTT after checkout to correctly bind the config volume
       - name: Restart MQTT
-        uses: docker://docker
-        with:
-          args: docker restart mqtt
+        run: docker restart mqtt
+        # uses: docker://docker
+        # with:
+        #   args: docker restart mqtt
 
-      - run: sleep 5
+      # - run: sleep 5
       - run: docker inspect mqtt
       - run: docker container exec mqtt ls /mosquitto/config
 
