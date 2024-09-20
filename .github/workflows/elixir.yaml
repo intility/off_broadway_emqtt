@@ -22,8 +22,8 @@ jobs:
         ports:
           - "1883:1883"
           - "1884:1884"
-        volumes:
-          - ${{ github.workspace }}/.moquitto:/mosquitto/config
+        # volumes:
+        #   - ${{ github.workspace }}/.moquitto:/mosquitto/config
         options: --name mqtt
     strategy:
       fail-fast: false
