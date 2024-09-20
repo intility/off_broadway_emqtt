@@ -11,6 +11,7 @@ An MQTT connector based on [emqtt](https://github.com/emqx/emqtt) for [Broadway]
 defmodule MyBroadway do 
   use Broadway
   alias Broadway.Message
+  
   def start_link(_opts) do 
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
