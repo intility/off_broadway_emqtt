@@ -1,12 +1,11 @@
 defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
-  # import ExUnit.CaptureLog
 
-  @broadway_opts buffer_size: 10000,
+  @broadway_opts buffer_size: 10_000,
                  buffer_overflow_strategy: :drop_head,
                  config: [
-                   # host: "localhost",
-                   host: "test.mosquitto.org",
+                   host: "localhost",
+                   # host: "test.mosquitto.org",
                    port: 1884,
                    username: "rw",
                    password: "readwrite",
@@ -90,7 +89,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       ],
       batchers: [
         default: [
-          batch_size: 1000,
+          batch_size: 100,
           batch_timeout: 50,
           concurrency: 10
         ]
@@ -133,7 +132,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       name = unique_name()
       {:ok, pid} = start_broadway(nil, name, @broadway_opts ++ [topics: [{"#", 0}]])
 
-      Process.sleep(:timer.seconds(60))
+      # Process.sleep(:timer.seconds(60))
       stop_process(pid)
     end
 
@@ -142,7 +141,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, name, @broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
-      IO.puts("Pushing messages")
       MessageServer.push_messages(message_server, "test", 1..5)
 
       Process.sleep(100)
