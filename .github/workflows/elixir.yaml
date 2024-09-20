@@ -23,7 +23,7 @@ jobs:
           - "1883:1883"
           - "1884:1884"
         volumes:
-          - ${{ github.workspace }}/build/volume/.moquitto:/mosquitto/config
+          - ${{ github.workspace }}/.moquitto:/mosquitto/config
         options: --name mqtt
     strategy:
       fail-fast: false
