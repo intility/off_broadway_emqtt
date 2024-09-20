@@ -57,15 +57,18 @@ defmodule OffBroadway.EMQTT.Broker do
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
       {count, :reject} when count >= state.buffer_sizer ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, rejecting message")
+        measure_buffer_event(state.client_id, message.topic, count, :reject_message)
         {:noreply, [], state}
 
       {count, :drop_head} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, dropping head")
+        measure_buffer_event(state.client_id, message.topic, count, :drop_message)
         # :ets.delete_element(state.ets_table, :head)
         # :ets.insert_new(state.ets_table, {:tail, message})
         {:noreply, [], state}
 
-      {_, _} ->
+      {count, _} ->
+        measure_buffer_event(state.client_id, message.topic, count, :accept_message)
         :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
     end
 
@@ -80,6 +83,14 @@ defmodule OffBroadway.EMQTT.Broker do
 
   @spec subscribe(pid(), {String.t(), term()}) :: {:ok, {:via, port()}, [pos_integer()]} | {:error, term()}
   defp subscribe(emqtt, topic) when is_tuple(topic), do: :emqtt.subscribe(emqtt, topic)
+
+  defp measure_buffer_event(client_id, topic, buffer_size, event_type) do
+    :telemetry.execute(
+      [:off_broadway_emqtt, :buffer, event_type],
+      %{time: System.system_time(), count: 1},
+      %{client_id: client_id, topic: topic, buffer_size: buffer_size}
+    )
+  end
 
   # @spec emqtt_message_handler(atom() | {atom(), keyword()}) :: map()
   # defp emqtt_message_handler(message_handler) do
