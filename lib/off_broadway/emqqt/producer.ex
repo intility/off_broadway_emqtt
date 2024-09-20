@@ -1,6 +1,6 @@
 defmodule OffBroadway.EMQTT.Producer do
   @moduledoc """
-  A MQTT producer based on [emqtt](https://github.com/emqx/emqtt) for Broadway.
+  An MQTT producer based on [emqtt](https://github.com/emqx/emqtt) for Broadway.
 
   ## Producer options
 
@@ -20,92 +20,49 @@ defmodule OffBroadway.EMQTT.Producer do
         * measurement: `%{time: System.monotonic_time}`
         * metadata: `%{client_id: string, demand: non_neg_integer}`
 
+
      * `[:off_broadway_emqtt, :receive_messages, :stop]` - Dispatched after messages have been
       received from the `ETS` buffer and "wrapped".
 
-      * measurement: `%{time: native_time}`
-      * metadata:
+        * measurement: `%{time: native_time}`
+        * metadata: `%{client_id: string, topics: [string], received: non_neg_integer, demand: non_neg_integer}`
 
-        ```
-        %{
-          client_id: string,
-          topics: [string],
-          received: non_neg_integer,
-          demand: non_neg_integer
-        }
-        ```
 
     * `[:off_broadway_emqtt, :receive_messages, :exception]` - Dispatched after a failure while
       receiving messages from the `ETS` buffer.
 
       * measurement: `%{duration: native_time}`
-      * metadata:
+      * metadata: `%{client_id: string, demand: non_neg_integer, reason: reason, stacktrace: stacktrace}`
 
-        ```
-        %{
-          client_id: string,
-          demand: non_neg_integer,
-          reason: reason,
-          stacktrace: stacktrace
-        }
-        ```
 
     * `[:off_broadway_emqtt, :receive_messages, :ack]` - Dispatched when acking a message if using
       the default `OffBroadway.EMQTT.MessageHandler` implementation.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * meatadata:
+      * metadata: `%{topic: string, receipt: receipt}`
 
-        ```
-        %{
-          topic: string,
-          receipt: receipt
-        }
-        ```
 
     * `[:off_broadway_emqtt, :buffer, :accept_message]` - Dispatched when a message is stored
       into the `ETS` buffer.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * meatadata:
+      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
 
-        ```
-        %{
-          client_id: string,
-          topic: string,
-          buffer_size: non_neg_integer
-        }
-        ```
 
     * `[:off_broadway_emqtt, :buffer, :reject_message]` - Dispatched when a message is rejected
       to be stored in the `ETS` buffer because it is full. This occurs when the buffer is full
       and the `buffer_overflow_strategy` is set to `:reject`.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * meatadata:
+      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
 
-        ```
-        %{
-          client_id: string,
-          topic: string,
-          buffer_size: non_neg_integer
-        }
-        ```
 
     * `[:off_broadway_emqtt, :buffer, :drop_message]` - Dispatched when a message is dropped from
       the `ETS` buffer to make space for a new. This occurs when the buffer is full and the
       `buffer_overflow_strategy` is set to `:drop_head`.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * meatadata:
-
-        ```
-        %{
-          client_id: string,
-          topic: string,
-          buffer_size: non_neg_integer
-        }
-        ```
+      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
   """
 
   use GenStage
