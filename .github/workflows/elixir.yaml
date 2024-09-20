@@ -44,6 +44,7 @@ jobs:
       - name: Start the Mosquitto MQTT broker
         run: |
           docker run \
+          --detach \
           --name mqtt \
           -v ${{ github.workspace }}/.mosquitto:/mosquitto/config \
           -p 1883:1883 \
