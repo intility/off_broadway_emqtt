@@ -47,6 +47,7 @@ jobs:
         with:
           args: docker restart mqtt
 
+      - run: sleep 5
       - run: docker inspect mqtt
       - run: docker container exec mqtt ls /mosquitto/config
 
