@@ -45,7 +45,9 @@ jobs:
       - name: Restart MQTT
         uses: docker://docker
         with:
-          args: restart mqtt
+          args: docker restart mqtt
+
+      - run: docker inspect mqtt
 
       - name: Set up Erlang and Elixir
         uses: erlef/setup-beam@v1
