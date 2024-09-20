@@ -1,7 +1,6 @@
 defmodule OffBroadway.EMQTT.Broker do
   use GenServer
   require Logger
-  alias OffBroadway.EMQTT.Producer
 
   def start_link(opts) do
     client_id = get_in(opts, [:config, :clientid])
@@ -15,7 +14,7 @@ defmodule OffBroadway.EMQTT.Broker do
          {:ok, client_id} <- Keyword.fetch(config, :clientid),
          {:ok, buffer_size} <- Keyword.fetch(args, :buffer_size),
          {:ok, buffer_overflow} <- Keyword.fetch(args, :buffer_overflow_strategy),
-         {:ok, message_handler} <- Keyword.fetch(args, :message_handler),
+         {:ok, _message_handler} <- Keyword.fetch(args, :message_handler),
          {:ok, emqtt} <- :emqtt.start_link(config),
          {:ok, _props} <- :emqtt.connect(emqtt) do
       Process.flag(:trap_exit, true)
