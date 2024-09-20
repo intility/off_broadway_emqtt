@@ -77,5 +77,5 @@ jobs:
       - run: mix compile --warnings-as-errors
         if: ${{ matrix.lint }}
 
-      - run: mix coveralls.github
+      - run: mix coveralls
         if: ${{ matrix.coverage }}
