@@ -14,7 +14,98 @@ defmodule OffBroadway.EMQTT.Producer do
 
   This library exposes the following telemetry events:
 
-  TBD
+    * `[:off_broadway_emqtt, :receive_messages, :start]` - Dispatched before messages are received from
+      the `ETS` buffer.
+
+        * measurement: `%{time: System.monotonic_time}`
+        * metadata: `%{client_id: string, demand: non_neg_integer}`
+
+     * `[:off_broadway_emqtt, :receive_messages, :stop]` - Dispatched after messages have been
+      received from the `ETS` buffer and "wrapped".
+
+      * measurement: `%{time: native_time}`
+      * metadata:
+
+        ```
+        %{
+          client_id: string,
+          topics: [string],
+          received: non_neg_integer,
+          demand: non_neg_integer
+        }
+        ```
+
+    * `[:off_broadway_emqtt, :receive_messages, :exception]` - Dispatched after a failure while
+      receiving messages from the `ETS` buffer.
+
+      * measurement: `%{duration: native_time}`
+      * metadata:
+
+        ```
+        %{
+          client_id: string,
+          demand: non_neg_integer,
+          reason: reason,
+          stacktrace: stacktrace
+        }
+        ```
+
+    * `[:off_broadway_emqtt, :receive_messages, :ack]` - Dispatched when acking a message if using
+      the default `OffBroadway.EMQTT.MessageHandler` implementation.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * meatadata:
+
+        ```
+        %{
+          topic: string,
+          receipt: receipt
+        }
+        ```
+
+    * `[:off_broadway_emqtt, :buffer, :accept_message]` - Dispatched when a message is stored
+      into the `ETS` buffer.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * meatadata:
+
+        ```
+        %{
+          client_id: string,
+          topic: string,
+          buffer_size: non_neg_integer
+        }
+        ```
+
+    * `[:off_broadway_emqtt, :buffer, :reject_message]` - Dispatched when a message is rejected
+      to be stored in the `ETS` buffer because it is full. This occurs when the buffer is full
+      and the `buffer_overflow_strategy` is set to `:reject`.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * meatadata:
+
+        ```
+        %{
+          client_id: string,
+          topic: string,
+          buffer_size: non_neg_integer
+        }
+        ```
+
+    * `[:off_broadway_emqtt, :buffer, :drop_message]` - Dispatched when a message is dropped from
+      the `ETS` buffer to make space for a new. This occurs when the buffer is full and the
+      `buffer_overflow_strategy` is set to `:drop_head`.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * meatadata:
+
+        ```
+        %{
+          client_id: string,
+          topic: string,
+          buffer_size: non_neg_integer
+        }
+        ```
   """
 
   use GenStage
@@ -27,6 +118,7 @@ defmodule OffBroadway.EMQTT.Producer do
   @impl true
   def init(opts) do
     with name when is_atom(name) <- get_in(opts, [:config, :name]),
+         client_id when is_binary(client_id) <- get_in(opts, [:config, :clientid]),
          emqtt when is_pid(emqtt) <- GenServer.whereis(:"#{OffBroadway.EMQTT.Broker}-#{name}") do
       {:producer,
        %{
@@ -37,6 +129,7 @@ defmodule OffBroadway.EMQTT.Producer do
          emqtt_name: name,
          receive_timer: nil,
          receive_interval: 100,
+         client_id: client_id,
          message_handler: opts[:message_handler],
          broadway: get_in(opts, [:broadway, :name])
        }}
@@ -59,7 +152,8 @@ defmodule OffBroadway.EMQTT.Producer do
              config <- Keyword.put(config, :host, to_charlist(host)) do
           :persistent_term.put(broadway, %{
             config: config,
-            # FIXME
+            # FIXME Acking should be configurable based on if the :emqtt process is started
+            # is configured to auto-ack or not.
             on_success: :ack,
             on_failure: :noop
           })
@@ -116,7 +210,7 @@ defmodule OffBroadway.EMQTT.Producer do
   end
 
   defp receive_messages_from_handler(state) do
-    metadata = %{demand: state.demand}
+    metadata = %{client_id: state.client_id, demand: state.demand}
     message_handler_module = message_handler_module(state.message_handler)
 
     :telemetry.span(
@@ -129,7 +223,11 @@ defmodule OffBroadway.EMQTT.Producer do
           |> Stream.map(&apply(message_handler_module, :handle_message, [&1, state.broadway, []]))
           |> Enum.into([])
 
-        {messages, Map.put(metadata, :received, length(messages))}
+        topics =
+          Enum.map(messages, &Map.get(&1.metadata, :topic))
+          |> Enum.reject(&is_nil/1)
+
+        {messages, Map.put(metadata, :received, length(messages)) |> Map.put(:topics, topics)}
       end
     )
   end
