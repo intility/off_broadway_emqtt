@@ -66,8 +66,7 @@ defmodule OffBroadway.EMQTT.Broker do
         # :ets.insert_new(state.ets_table, {:tail, message})
         {:noreply, [], state}
 
-      {count, _} ->
-        IO.puts(count)
+      {_, _} ->
         :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
     end
 
