@@ -3,9 +3,13 @@ defmodule OffBroadway.EMQTT.Broker do
   require Logger
 
   def start_link(opts) do
-    client_id = get_in(opts, [:config, :clientid])
-    GenServer.start_link(__MODULE__, opts, name: :"#{__MODULE__}-#{client_id}")
+    name = get_in(opts, [:config, :name])
+    GenServer.start_link(__MODULE__, opts, name: :"#{__MODULE__}-#{name}")
   end
+
+  def stop_emqtt(pid), do: GenServer.cast(pid, :stop_emqtt)
+  def pause_emqtt(pid), do: GenServer.cast(pid, :pause_emqtt)
+  def resume_emqtt(pid), do: GenServer.cast(pid, :resume_emqtt)
 
   @impl true
   def init(args) do
@@ -27,6 +31,7 @@ defmodule OffBroadway.EMQTT.Broker do
          ets_table: String.to_existing_atom(client_id),
          emqtt: emqtt,
          emqtt_ref: Process.monitor(emqtt),
+         emqtt_config: config,
          topics: topics,
          topic_subscriptions: []
        }, {:continue, :create_ets_table}}
@@ -78,6 +83,32 @@ defmodule OffBroadway.EMQTT.Broker do
         :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
     end
 
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ref, :process, _, :normal}, state) when ref == state.emqtt_ref, do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _reason}, state) when ref == state.emqtt_ref do
+    {:ok, pid} = :emqtt.start_link(state.emqtt_config)
+    {:ok, _props} = :emqtt.connect(pid)
+    {:noreply, %{state | emqtt: pid, emqtt_ref: Process.monitor(pid)}, {:continue, :subscribe_to_topics}}
+  end
+
+  def handle_info({:EXIT, _, _reason}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_cast(:stop_emqtt, state) do
+    if Process.alive?(state.emqtt), do: :ok = :emqtt.stop(state.emqtt)
+    {:noreply, state}
+  end
+
+  def handle_cast(:pause_emqtt, state) do
+    :ok = :emqtt.pause(state.emqtt)
+    {:noreply, state}
+  end
+
+  def handle_cast(:resume_emqtt, state) do
+    :ok = :emqtt.resume(state.emqtt)
     {:noreply, state}
   end
 

@@ -95,7 +95,7 @@ defmodule OffBroadway.EMQTT.Producer do
     end
   end
 
-  @impl true
+  @impl Producer
   def prepare_for_start(_module, broadway_opts) do
     {producer_module, client_opts} = broadway_opts[:producer][:module]
 
@@ -130,6 +130,13 @@ defmodule OffBroadway.EMQTT.Producer do
       {:error, error} ->
         raise ArgumentError, format_error(error)
     end
+  end
+
+  @impl Producer
+  def prepare_for_draining(%{receive_timer: timer} = state) do
+    timer && Process.cancel_timer(timer)
+    Broker.stop_emqtt(state.emqtt)
+    {:noreply, [], %{state | drain: true, receive_timer: nil}}
   end
 
   @spec emqtt_process_name(String.t()) :: atom()

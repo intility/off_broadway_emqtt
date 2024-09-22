@@ -156,5 +156,14 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       :telemetry.detach("telemetry-events")
       stop_process(pid)
     end
+
+    test "stops the emqtt server when draining" do
+      {:ok, pid} = start_broadway(nil, unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
+      Broadway.stop(pid, :normal)
+
+      # Make sure to not kill the producer before it can respond
+      Process.sleep(10)
+      stop_process(pid)
+    end
   end
 end
