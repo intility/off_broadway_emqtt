@@ -1,5 +1,4 @@
 defmodule OffBroadway.EMQTT.MixProject do
-  nil
   use Mix.Project
 
   @version "0.1.0"
@@ -10,7 +9,7 @@ defmodule OffBroadway.EMQTT.MixProject do
     [
       app: :off_broadway_emqtt,
       version: @version,
-      elixir: "~> 1.17",
+      elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       description: @description,
