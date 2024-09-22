@@ -66,7 +66,7 @@ defmodule OffBroadway.EMQTT.Broker do
   @impl true
   def handle_info({:publish, message}, state) do
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
-      {count, :reject} when count >= state.buffer_sizer ->
+      {count, :reject} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, rejecting message")
         measure_buffer_event(state.client_id, message.topic, count, :reject_message)
         {:noreply, [], state}
