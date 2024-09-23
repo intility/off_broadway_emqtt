@@ -7,10 +7,6 @@ defmodule OffBroadway.EMQTT.Broker do
     GenServer.start_link(__MODULE__, opts, name: :"#{__MODULE__}-#{name}")
   end
 
-  def stop_emqtt(pid), do: GenServer.cast(pid, :stop_emqtt)
-  def pause_emqtt(pid), do: GenServer.cast(pid, :pause_emqtt)
-  def resume_emqtt(pid), do: GenServer.cast(pid, :resume_emqtt)
-
   @impl true
   def init(args) do
     with {:ok, config} <- Keyword.fetch(args, :config),
@@ -28,6 +24,8 @@ defmodule OffBroadway.EMQTT.Broker do
          client_id: client_id,
          buffer_size: buffer_size,
          buffer_overflow: buffer_overflow,
+         buffer_threshold: {20.0, 80.0},
+         buffer_threshold_ref: nil,
          ets_table: String.to_existing_atom(client_id),
          emqtt: emqtt,
          emqtt_ref: Process.monitor(emqtt),
@@ -60,7 +58,16 @@ defmodule OffBroadway.EMQTT.Broker do
       Enum.map(state.topics, &subscribe(state.emqtt, &1))
       |> Enum.map(fn {:ok, %{via: port}, qos} -> {port, qos} end)
 
-    {:noreply, %{state | topic_subscriptions: subscriptions}}
+    # Start a timer to check the buffer fill percentage and pause/resume the EMQTT client
+    ref =
+      :timer.apply_repeatedly(500, __MODULE__, :check_buffer_threshold, [
+        state.buffer_size,
+        state.buffer_threshold,
+        state.ets_table,
+        state.emqtt
+      ])
+
+    {:noreply, %{state | topic_subscriptions: subscriptions, buffer_threshold_ref: ref}}
   end
 
   @impl true
@@ -86,6 +93,26 @@ defmodule OffBroadway.EMQTT.Broker do
     {:noreply, state}
   end
 
+  def check_buffer_threshold(buffer_size, {min_threshold, max_threshold}, ets_table, emqtt) do
+    case buffer_fill_percentage(buffer_size, :ets.info(ets_table, :size)) do
+      fill_percentage when fill_percentage >= max_threshold ->
+        client_id = :emqtt.info(emqtt)[:clientid]
+
+        Logger.warning(
+          "Buffer fill percentage for client id #{client_id} is " <>
+            "#{:erlang.float_to_binary(fill_percentage, decimals: 2)}%, pausing EMQTT client"
+        )
+
+        :ok = :emqtt.pause(emqtt)
+
+      fill_percentage when fill_percentage < min_threshold ->
+        :ok = :emqtt.resume(emqtt)
+
+      _fill_percentage ->
+        :ok
+    end
+  end
+
   def handle_info({:DOWN, ref, :process, _, :normal}, state) when ref == state.emqtt_ref, do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _, _reason}, state) when ref == state.emqtt_ref do
@@ -95,22 +122,6 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   def handle_info({:EXIT, _, _reason}, state), do: {:noreply, state}
-
-  @impl true
-  def handle_cast(:stop_emqtt, state) do
-    if Process.alive?(state.emqtt), do: :ok = :emqtt.stop(state.emqtt)
-    {:noreply, state}
-  end
-
-  def handle_cast(:pause_emqtt, state) do
-    :ok = :emqtt.pause(state.emqtt)
-    {:noreply, state}
-  end
-
-  def handle_cast(:resume_emqtt, state) do
-    :ok = :emqtt.resume(state.emqtt)
-    {:noreply, state}
-  end
 
   @impl true
   def terminate(_reason, state) do
@@ -128,6 +139,8 @@ defmodule OffBroadway.EMQTT.Broker do
       %{client_id: client_id, topic: topic, buffer_size: buffer_size}
     )
   end
+
+  defp buffer_fill_percentage(buffer_size, count), do: min(100.0, count * 100.0 / buffer_size)
 
   # @spec emqtt_message_handler(atom() | {atom(), keyword()}) :: map()
   # defp emqtt_message_handler(message_handler) do
