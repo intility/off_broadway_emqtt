@@ -79,6 +79,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       context: %{test_pid: self()},
       producer: [
         module: {OffBroadway.EMQTT.Producer, Keyword.merge(producer_opts, opts)},
+        rate_limiting: [allowed_messages: 1000, interval: 1000],
         concurrency: 10
       ],
       processors: [
@@ -125,8 +126,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
       MessageServer.push_messages(message_server, "test", 1..5)
 
-      Process.sleep(100)
-
       for _message <- 1..5 do
         assert_receive {:message_handled, _, _}
       end
@@ -161,8 +160,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       {:ok, pid} = start_broadway(nil, unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
       Broadway.stop(pid, :normal)
 
-      # Make sure to not kill the producer before it can respond
-      Process.sleep(10)
       stop_process(pid)
     end
   end
