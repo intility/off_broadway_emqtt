@@ -1,4 +1,10 @@
 defmodule OffBroadway.EMQTT.Broker do
+  @moduledoc """
+  The `OffBroadway.EMQTT.Broker` is started as part of the Broadway pipeline
+  supervision tree and is responsible for managing the connection to the MQTT
+  broker and cache incoming messages until the producer is ready to consume them.
+  """
+
   use GenServer
   require Logger
 
@@ -81,18 +87,24 @@ defmodule OffBroadway.EMQTT.Broker do
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
       {count, :reject} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, rejecting message")
-        measure_buffer_event(state.client_id, message.topic, count, :reject_message)
+
+        execute_telemetry_event(state.client_id, message.topic, count, :reject_message)
         {:noreply, [], state}
 
       {count, :drop_head} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, dropping head")
-        measure_buffer_event(state.client_id, message.topic, count, :drop_message)
-        # :ets.delete_element(state.ets_table, :head)
-        # :ets.insert_new(state.ets_table, {:tail, message})
+
+        key = :ets.first(state.ets_table)
+        :ets.delete(state.ets_table, key)
+        :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
+
+        execute_telemetry_event(state.client_id, message.topic, count, :drop_message)
+        execute_telemetry_event(state.client_id, message.topic, count, :accept_message)
+
         {:noreply, [], state}
 
       {count, _} ->
-        measure_buffer_event(state.client_id, message.topic, count, :accept_message)
+        execute_telemetry_event(state.client_id, message.topic, count, :accept_message)
         :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
     end
 
@@ -142,44 +154,35 @@ defmodule OffBroadway.EMQTT.Broker do
   @spec stream_from_buffer(atom()) :: Enumerable.t()
   def stream_from_buffer(ets_table) do
     Stream.resource(
-      fn -> [] end,
-      fn acc ->
-        case acc do
-          [] -> receive_first(ets_table, acc)
-          acc -> receive_next(ets_table, acc)
-        end
+      fn -> :ets.first(ets_table) end,
+      fn
+        :"$end_of_table" -> {:halt, :"$end_of_table"}
+        key -> receive_next(ets_table, key)
       end,
-      fn keys -> Enum.each(keys, &:ets.delete(ets_table, &1)) end
+      fn _ -> :ok end
     )
   end
 
-  @spec receive_first(atom(), list()) :: {term(), [non_neg_integer()]} | {:halt, list()}
-  defp receive_first(ets_table, acc) do
-    with key when is_integer(key) <- :ets.first(ets_table),
-         spec <- [{{:"$1", :"$2"}, [{:==, :"$1", key}], [:"$2"]}],
-         message <- :ets.select(ets_table, spec) do
-      {message, [key]}
-    else
-      _ -> {:halt, acc}
-    end
-  end
+  @spec receive_next(atom(), any()) :: {list(), any()}
+  defp receive_next(_ets_table, :"$end_of_table"), do: {:halt, :"$end_of_table"}
 
-  @spec receive_next(atom(), list()) :: {term(), [non_neg_integer()]} | {:halt, list()}
-  defp receive_next(ets_table, acc) do
-    with key when is_integer(key) <- :ets.next(ets_table, acc),
-         spec <- [{{:"$1", :"$2"}, [{:==, :"$1", key}], [:"$2"]}],
-         message <- :ets.select(ets_table, spec) do
-      {message, [key]}
-    else
-      _ -> {:halt, acc}
+  defp receive_next(ets_table, key) do
+    case :ets.lookup(ets_table, key) do
+      [] ->
+        {:halt, :"$end_of_table"}
+
+      [{key, value}] ->
+        :ets.delete(ets_table, key)
+        next_key = :ets.next(ets_table, key)
+        {[value], next_key}
     end
   end
 
   @spec subscribe(pid(), {String.t(), term()}) :: {:ok, {:via, port()}, [pos_integer()]} | {:error, term()}
   defp subscribe(emqtt, topic) when is_tuple(topic), do: :emqtt.subscribe(emqtt, topic)
 
-  @spec measure_buffer_event(String.t(), String.t(), non_neg_integer(), atom()) :: :ok
-  defp measure_buffer_event(client_id, topic, buffer_size, event_type) do
+  @spec execute_telemetry_event(String.t(), String.t(), non_neg_integer(), atom()) :: :ok
+  defp execute_telemetry_event(client_id, topic, buffer_size, event_type) do
     :telemetry.execute(
       [:off_broadway_emqtt, :buffer, event_type],
       %{time: System.system_time(), count: 1},

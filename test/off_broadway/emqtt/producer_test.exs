@@ -1,5 +1,6 @@
 defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
+  import ExUnit.CaptureLog
 
   @broadway_opts buffer_size: 10_000,
                  buffer_overflow_strategy: :drop_head,
@@ -23,8 +24,14 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     end
 
     def push_messages(server, topic, messages) do
-      for message <- messages, do: :emqtt.publish(server, topic, :erlang.term_to_binary(message))
+      for message <- messages, do: :emqtt.publish(server, topic, to_iodata(message))
     end
+
+    def to_iodata(term) when is_binary(term), do: term
+    def to_iodata(term) when is_list(term), do: term
+    def to_iodata(term) when is_integer(term), do: Integer.to_string(term)
+    def to_iodata(term) when is_float(term), do: Float.to_string(term)
+    def to_iodata(term), do: :erlang.term_to_binary(term)
   end
 
   defmodule Forwarder do
@@ -133,19 +140,82 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       stop_process(pid)
     end
 
+    test "reject message when buffer is full" do
+      self = self()
+      broadway_opts = Keyword.merge(@broadway_opts, buffer_size: 5, buffer_overflow_strategy: :reject)
+
+      {:ok, message_server} = MessageServer.start_link()
+      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :exactly_once}]])
+
+      capture_log(fn ->
+        :ok =
+          :telemetry.attach(
+            "telemetry-events",
+            [:off_broadway_emqtt, :buffer, :reject_message],
+            fn name, measurements, metadata, _ ->
+              send(self, {:telemetry_event, name, measurements, metadata})
+            end,
+            nil
+          )
+      end)
+
+      MessageServer.push_messages(message_server, "test", 1..6)
+
+      assert_receive {:telemetry_event, [:off_broadway_emqtt, :buffer, :reject_message], %{time: _, count: 1},
+                      %{client_id: "producer-test", topic: "test", buffer_size: 5}}
+
+      for _ <- 1..5, do: assert_receive({:message_handled, _, _})
+
+      :telemetry.detach("telemetry-events")
+      stop_process(pid)
+    end
+
+    test "drops head when buffer is full" do
+      self = self()
+      broadway_opts = Keyword.merge(@broadway_opts, buffer_size: 5, buffer_overflow_strategy: :drop_head)
+
+      {:ok, message_server} = MessageServer.start_link()
+      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :exactly_once}]])
+
+      capture_log(fn ->
+        :ok =
+          :telemetry.attach(
+            "telemetry-events",
+            [:off_broadway_emqtt, :buffer, :drop_message],
+            fn name, measurements, metadata, _ ->
+              send(self, {:telemetry_event, name, measurements, metadata})
+            end,
+            nil
+          )
+      end)
+
+      MessageServer.push_messages(message_server, "test", 1..6)
+
+      assert_receive {:telemetry_event, [:off_broadway_emqtt, :buffer, :drop_message], %{time: _, count: 1},
+                      %{client_id: "producer-test", topic: "test", buffer_size: 5}}
+
+      for _ <- 1..5, do: assert_receive({:message_handled, _, _})
+
+      :telemetry.detach("telemetry-events")
+      stop_process(pid)
+    end
+
     test "emits telemetry events" do
       self = self()
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
-      :telemetry.attach(
-        "telemetry-events",
-        [:off_broadway_emqtt, :receive_messages, :start],
-        fn name, measurements, metadata, _ ->
-          send(self, {:telemetry_event, name, measurements, metadata})
-        end,
-        nil
-      )
+      capture_log(fn ->
+        :ok =
+          :telemetry.attach(
+            "telemetry-events",
+            [:off_broadway_emqtt, :receive_messages, :start],
+            fn name, measurements, metadata, _ ->
+              send(self, {:telemetry_event, name, measurements, metadata})
+            end,
+            nil
+          )
+      end)
 
       MessageServer.push_messages(message_server, "test", [1])
 
