@@ -160,6 +160,7 @@ defmodule OffBroadway.EMQTT.Producer do
     do: Process.send_after(self(), :receive_messages, interval)
 
   defp handle_receive_messages(%{drain: true} = state), do: {:noreply, [], state}
+  defp handle_receive_messages(%{demand: 0} = state), do: {:noreply, [], state}
 
   defp handle_receive_messages(%{demand: demand, receive_timer: nil} = state) when demand > 0 do
     messages = receive_messages_from_handler(state)
