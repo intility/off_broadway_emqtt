@@ -71,6 +71,12 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   @impl true
+  def handle_cast(:stop_emqtt, state) do
+    if Process.alive?(state.emqtt), do: :emqtt.stop(state.emqtt)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:publish, message}, state) do
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
       {count, :reject} when count >= state.buffer_size ->
@@ -93,6 +99,26 @@ defmodule OffBroadway.EMQTT.Broker do
     {:noreply, state}
   end
 
+  def handle_info({:DOWN, ref, :process, _, :normal}, state) when ref == state.emqtt_ref, do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _reason}, state) when ref == state.emqtt_ref do
+    {:ok, pid} = :emqtt.start_link(state.emqtt_config)
+    {:ok, _props} = :emqtt.connect(pid)
+    {:noreply, %{state | emqtt: pid, emqtt_ref: Process.monitor(pid)}, {:continue, :subscribe_to_topics}}
+  end
+
+  def handle_info({:EXIT, _, _reason}, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    Process.demonitor(state.emqtt_ref)
+    :ets.delete(state.ets_table)
+  end
+
+  @spec stop_emqtt(pid()) :: :ok
+  def stop_emqtt(pid), do: GenServer.cast(pid, :stop_emqtt)
+
+  @spec check_buffer_threshold(non_neg_integer(), {non_neg_integer(), non_neg_integer()}, atom(), pid()) :: :ok
   def check_buffer_threshold(buffer_size, {min_threshold, max_threshold}, ets_table, emqtt) do
     case buffer_fill_percentage(buffer_size, :ets.info(ets_table, :size)) do
       fill_percentage when fill_percentage >= max_threshold ->
@@ -113,25 +139,46 @@ defmodule OffBroadway.EMQTT.Broker do
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _, :normal}, state) when ref == state.emqtt_ref, do: {:noreply, state}
-
-  def handle_info({:DOWN, ref, :process, _, _reason}, state) when ref == state.emqtt_ref do
-    {:ok, pid} = :emqtt.start_link(state.emqtt_config)
-    {:ok, _props} = :emqtt.connect(pid)
-    {:noreply, %{state | emqtt: pid, emqtt_ref: Process.monitor(pid)}, {:continue, :subscribe_to_topics}}
+  @spec stream_from_buffer(atom()) :: Enumerable.t()
+  def stream_from_buffer(ets_table) do
+    Stream.resource(
+      fn -> [] end,
+      fn acc ->
+        case acc do
+          [] -> receive_first(ets_table, acc)
+          acc -> receive_next(ets_table, acc)
+        end
+      end,
+      fn keys -> Enum.each(keys, &:ets.delete(ets_table, &1)) end
+    )
   end
 
-  def handle_info({:EXIT, _, _reason}, state), do: {:noreply, state}
+  @spec receive_first(atom(), list()) :: {term(), [non_neg_integer()]} | {:halt, list()}
+  defp receive_first(ets_table, acc) do
+    with key when is_integer(key) <- :ets.first(ets_table),
+         spec <- [{{:"$1", :"$2"}, [{:==, :"$1", key}], [:"$2"]}],
+         message <- :ets.select(ets_table, spec) do
+      {message, [key]}
+    else
+      _ -> {:halt, acc}
+    end
+  end
 
-  @impl true
-  def terminate(_reason, state) do
-    Process.demonitor(state.emqtt_ref)
-    :ets.delete(state.ets_table)
+  @spec receive_next(atom(), list()) :: {term(), [non_neg_integer()]} | {:halt, list()}
+  defp receive_next(ets_table, acc) do
+    with key when is_integer(key) <- :ets.next(ets_table, acc),
+         spec <- [{{:"$1", :"$2"}, [{:==, :"$1", key}], [:"$2"]}],
+         message <- :ets.select(ets_table, spec) do
+      {message, [key]}
+    else
+      _ -> {:halt, acc}
+    end
   end
 
   @spec subscribe(pid(), {String.t(), term()}) :: {:ok, {:via, port()}, [pos_integer()]} | {:error, term()}
   defp subscribe(emqtt, topic) when is_tuple(topic), do: :emqtt.subscribe(emqtt, topic)
 
+  @spec measure_buffer_event(String.t(), String.t(), non_neg_integer(), atom()) :: :ok
   defp measure_buffer_event(client_id, topic, buffer_size, event_type) do
     :telemetry.execute(
       [:off_broadway_emqtt, :buffer, event_type],
@@ -140,6 +187,7 @@ defmodule OffBroadway.EMQTT.Broker do
     )
   end
 
+  @spec buffer_fill_percentage(non_neg_integer(), non_neg_integer()) :: float()
   defp buffer_fill_percentage(buffer_size, count), do: min(100.0, count * 100.0 / buffer_size)
 
   # @spec emqtt_message_handler(atom() | {atom(), keyword()}) :: map()
@@ -156,38 +204,4 @@ defmodule OffBroadway.EMQTT.Broker do
   #     pubrel: {message_handler, :handle_pubrel, args}
   #   }
   # end
-
-  @spec stream_from_buffer(atom()) :: Enumerable.t()
-  def stream_from_buffer(ets_table) do
-    Stream.resource(
-      fn -> [] end,
-      fn acc ->
-        case acc do
-          [] -> receive_first(ets_table, acc)
-          acc -> receive_next(ets_table, acc)
-        end
-      end,
-      fn keys -> Enum.each(keys, &:ets.delete(ets_table, &1)) end
-    )
-  end
-
-  defp receive_first(ets_table, acc) do
-    with key when is_integer(key) <- :ets.first(ets_table),
-         spec <- [{{:"$1", :"$2"}, [{:==, :"$1", key}], [:"$2"]}],
-         message <- :ets.select(ets_table, spec) do
-      {message, [key]}
-    else
-      _ -> {:halt, acc}
-    end
-  end
-
-  defp receive_next(ets_table, acc) do
-    with key when is_integer(key) <- :ets.next(ets_table, acc),
-         spec <- [{{:"$1", :"$2"}, [{:==, :"$1", key}], [:"$2"]}],
-         message <- :ets.select(ets_table, spec) do
-      {message, [key]}
-    else
-      _ -> {:halt, acc}
-    end
-  end
 end
