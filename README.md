@@ -72,7 +72,7 @@ by adding `off_broadway_emqtt` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:off_broadway_emqtt, "~> 0.1.0"},
+    {:off_broadway_emqtt, github: "Intility/off_broadway_emqtt", tag: "v0.1.0"},  # Waiting for upstream deps resolution fix
     {:cowlib, "~> 2.12", override: true}  # Required for `:emqtt` dependency resolution
   ]
 end
