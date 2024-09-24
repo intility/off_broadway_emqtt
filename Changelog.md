@@ -2,7 +2,7 @@
 
 ## 0.1.0 - Initial release
 
-_Released 2024-09-23_
+_Released 2024-09-24_
 
 The initial release supports connecting to an MQTT broker using  [emqtt](https://github.com/emqx/emqtt), 
 and consume messages using a Broadway pipeline.
