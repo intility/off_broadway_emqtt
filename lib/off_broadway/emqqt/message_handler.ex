@@ -84,10 +84,12 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   end
 
   def ack_message(message, _ack_options) do
+    receipt = extract_message_receipt(message)
+
     :telemetry.execute(
       [:off_broadway_emqtt, :receive_message, :ack],
       %{time: System.system_time(), count: 1},
-      %{topic: message.data.topic, receipt: extract_message_receipt(message)}
+      %{topic: receipt.topic, receipt: receipt}
     )
   end
 
