@@ -20,9 +20,7 @@ defmodule OffBroadway.EMQTT.Broker do
          {:ok, client_id} <- Keyword.fetch(config, :clientid),
          {:ok, buffer_size} <- Keyword.fetch(args, :buffer_size),
          {:ok, buffer_overflow} <- Keyword.fetch(args, :buffer_overflow_strategy),
-         {:ok, _message_handler} <- Keyword.fetch(args, :message_handler),
-         {:ok, emqtt} <- :emqtt.start_link(config),
-         {:ok, _props} <- :emqtt.connect(emqtt) do
+         {:ok, _message_handler} <- Keyword.fetch(args, :message_handler) do
       Process.flag(:trap_exit, true)
 
       {:ok,
@@ -33,8 +31,8 @@ defmodule OffBroadway.EMQTT.Broker do
          buffer_threshold: {20.0, 80.0},
          buffer_threshold_ref: nil,
          ets_table: String.to_existing_atom(client_id),
-         emqtt: emqtt,
-         emqtt_ref: Process.monitor(emqtt),
+         emqtt: nil,
+         emqtt_ref: nil,
          emqtt_config: config,
          topics: topics,
          topic_subscriptions: []
@@ -56,7 +54,18 @@ defmodule OffBroadway.EMQTT.Broker do
       {:read_concurrency, true}
     ])
 
-    {:noreply, state, {:continue, :subscribe_to_topics}}
+    {:noreply, state, {:continue, :connect_to_broker}}
+  end
+
+  def handle_continue(:connect_to_broker, state) do
+    with {:ok, pid} <- :emqtt.start_link(state.emqtt_config),
+         {:ok, _props} <- :emqtt.connect(pid) do
+      {:noreply, %{state | emqtt: pid, emqtt_ref: Process.monitor(pid)}, {:continue, :subscribe_to_topics}}
+    else
+      {:error, reason} ->
+        Logger.error("Failed to connect to MQTT broker: #{inspect(reason)}")
+        {:stop, :error}
+    end
   end
 
   def handle_continue(:subscribe_to_topics, state) do
