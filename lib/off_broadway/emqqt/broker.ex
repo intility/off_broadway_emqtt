@@ -132,7 +132,7 @@ defmodule OffBroadway.EMQTT.Broker do
 
   @impl true
   def terminate(_reason, state) do
-    Process.demonitor(state.emqtt_ref)
+    if is_reference(state.emqtt_ref), do: Process.demonitor(state.emqtt_ref)
     :ets.delete(state.ets_table)
   end
 
