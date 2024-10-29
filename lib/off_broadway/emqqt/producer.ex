@@ -104,9 +104,7 @@ defmodule OffBroadway.EMQTT.Producer do
         with {:ok, broadway} <- Keyword.fetch(broadway_opts, :name),
              {:ok, config} <- Keyword.fetch(opts, :config),
              {:ok, client_id} <- Keyword.fetch(config, :clientid),
-             {host, config} <- Keyword.pop(config, :host),
-             config <- Keyword.put(config, :name, emqtt_process_name(client_id)),
-             config <- Keyword.put(config, :host, to_charlist(host)) do
+             config <- Keyword.put(config, :name, emqtt_process_name(client_id)) do
           :persistent_term.put(broadway, %{
             config: config,
             # FIXME Acking should be configurable based on if the :emqtt process is started

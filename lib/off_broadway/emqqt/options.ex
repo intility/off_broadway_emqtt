@@ -42,7 +42,7 @@ defmodule OffBroadway.EMQTT.Options do
         keys: [
           host: [
             doc: "The host of the MQTT broker",
-            type: :string,
+            type: {:custom, __MODULE__, :type_charlist, [[{:name, :name}]]},
             required: true
           ],
           port: [
@@ -73,7 +73,7 @@ defmodule OffBroadway.EMQTT.Options do
               ],
               server_name_indication: [
                 doc: "Server name indication",
-                type: :string
+                type: {:custom, __MODULE__, :type_charlist, [[{:name, :name}]]}
               ],
               verify: [
                 doc: "Verify mode",
@@ -201,14 +201,15 @@ defmodule OffBroadway.EMQTT.Options do
   def type_subopt(value, [{:name, _}]) when value in @qos, do: {:ok, value}
   def type_subopt({:rh, qos} = value, [{:name, _}]) when qos in [0, 1, 2], do: {:ok, value}
   def type_subopt({:qos, qos} = value, [{:name, _}]) when qos in [0, 1, 2], do: {:ok, value}
-
-  def type_subopt({:rap, boolean} = value, [{:name, _}]) when is_boolean(boolean),
-    do: {:ok, value}
-
-  def type_subopt({:nl, boolean} = value, [{:name, _}]) when is_boolean(boolean),
-    do: {:ok, value}
+  def type_subopt({:rap, boolean} = value, [{:name, _}]) when is_boolean(boolean), do: {:ok, value}
+  def type_subopt({:nl, boolean} = value, [{:name, _}]) when is_boolean(boolean), do: {:ok, value}
 
   def type_subopt(value, [{:name, name}]) do
     {:error, "#{inspect(value)} is not a valid subopt value for #{name}"}
   end
+
+  def type_charlist(value, [{:name, _}]) when is_binary(value), do: {:ok, to_charlist(value)}
+
+  def type_charlist(value, [{:name, name}]),
+    do: {:error, "#{inspect(value)} is not a valid value for #{name}, expected a binary"}
 end
