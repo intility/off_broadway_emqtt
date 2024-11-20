@@ -68,8 +68,7 @@ defmodule OffBroadway.EMQTT.Options do
             keys: [
               cacertfile: [
                 doc: "Path to CA certificate file",
-                type: :string,
-                required: true
+                type: :string
               ],
               server_name_indication: [
                 doc: "Server name indication",

@@ -8,6 +8,7 @@ _Released unreleased_
  This ensures that topic is included in telemetry events even if the message has been altered during dispatch.
 - Move `emqtt.start_link/1` and `emqtt.connect/1` to a `handle_continue/2` callback to prevent blocking `GenServer.init/1`.
 - Convert `host` and `server_name_indication` to charlist when validating options.
+- Return new state from `handle_continue` on connection error.
 
 ## v0.1.0 - Initial release
 

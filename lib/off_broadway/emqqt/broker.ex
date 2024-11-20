@@ -28,7 +28,7 @@ defmodule OffBroadway.EMQTT.Broker do
          client_id: client_id,
          buffer_size: buffer_size,
          buffer_overflow: buffer_overflow,
-         buffer_threshold: {20.0, 80.0},
+         buffer_threshold: {20.0, 70.0},
          buffer_threshold_ref: nil,
          ets_table: String.to_existing_atom(client_id),
          emqtt: nil,
@@ -64,7 +64,7 @@ defmodule OffBroadway.EMQTT.Broker do
     else
       {:error, reason} ->
         Logger.error("Failed to connect to MQTT broker: #{inspect(reason)}")
-        {:stop, :error}
+        {:stop, :error, state}
     end
   end
 
@@ -143,10 +143,8 @@ defmodule OffBroadway.EMQTT.Broker do
   def check_buffer_threshold(buffer_size, {min_threshold, max_threshold}, ets_table, emqtt) do
     case buffer_fill_percentage(buffer_size, :ets.info(ets_table, :size)) do
       fill_percentage when fill_percentage >= max_threshold ->
-        client_id = :emqtt.info(emqtt)[:clientid]
-
         Logger.warning(
-          "Buffer fill percentage for client id #{client_id} is " <>
+          "Buffer fill percentage for client id #{:emqtt.info(emqtt)[:clientid]} is " <>
             "#{:erlang.float_to_binary(fill_percentage, decimals: 2)}%, pausing EMQTT client"
         )
 
