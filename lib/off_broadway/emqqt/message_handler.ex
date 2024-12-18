@@ -94,8 +94,11 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   end
 
   defp build_message(message, ack_ref) do
-    acknowledger = build_acknowledger(message, ack_ref)
-    %Broadway.Message{data: message, acknowledger: acknowledger}
+    with message <- Map.drop(message, [:via, :client_pid]),
+         {payload, metadata} <- Map.pop(message, :payload) do
+      acknowledger = build_acknowledger(message, ack_ref)
+      %Broadway.Message{data: payload, metadata: metadata, acknowledger: acknowledger}
+    end
   end
 
   defp build_acknowledger(message, ack_ref) do

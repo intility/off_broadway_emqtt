@@ -9,6 +9,7 @@ _Released unreleased_
 - Move `emqtt.start_link/1` and `emqtt.connect/1` to a `handle_continue/2` callback to prevent blocking `GenServer.init/1`.
 - Convert `host` and `server_name_indication` to charlist when validating options.
 - Return new state from `handle_continue` on connection error.
+- Publish the `payload` field as message data, and the rest as metadata.
 
 ## v0.1.0 - Initial release
 
