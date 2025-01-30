@@ -71,7 +71,10 @@ defmodule OffBroadway.EMQTT.Broker do
   def handle_continue(:subscribe_to_topics, state) do
     subscriptions =
       Enum.map(state.topics, &subscribe(state.emqtt, &1))
-      |> Enum.map(fn {:ok, %{via: port}, qos} -> {port, qos} end)
+      |> Enum.map(fn
+        {:ok, %{via: port}, qos} -> {port, qos}
+        {:error, reason} -> Logger.error("Subscribing to topic failed with reason #{inspect(reason)}")
+      end)
 
     # Start a timer to check the buffer fill percentage and pause/resume the EMQTT client
     ref =
@@ -143,7 +146,7 @@ defmodule OffBroadway.EMQTT.Broker do
   def check_buffer_threshold(buffer_size, {min_threshold, max_threshold}, ets_table, emqtt) do
     case buffer_fill_percentage(buffer_size, :ets.info(ets_table, :size)) do
       fill_percentage when fill_percentage >= max_threshold ->
-        Logger.warning(
+        Logger.debug(
           "Buffer fill percentage for client id #{:emqtt.info(emqtt)[:clientid]} is " <>
             "#{:erlang.float_to_binary(fill_percentage, decimals: 2)}%, pausing EMQTT client"
         )
