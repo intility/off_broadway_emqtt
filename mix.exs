@@ -53,10 +53,10 @@ defmodule OffBroadway.EMQTT.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:broadway, "~> 1.1"},
+      {:broadway, "~> 1.2"},
       {:emqtt, "~> 1.11"},
-      {:cowlib, "~> 2.12", override: true},
-      {:ex_doc, "~> 0.35", only: [:dev, :test], runtime: false},
+      {:cowlib, "~> 2.14", override: true},
+      {:ex_doc, "~> 0.37", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: :dev},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18", only: :test}
