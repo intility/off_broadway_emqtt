@@ -66,7 +66,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       broadway_opts(
         broadway_name,
         opts,
-        @broadway_opts ++ [message_server: message_server, topics: [{"test", :at_most_once}]]
+        @broadway_opts ++ [message_server: message_server, topics: [{"test", :at_least_once}]]
       )
     )
   end
@@ -134,7 +134,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       MessageServer.push_messages(message_server, "test", 1..5)
 
       for _message <- 1..5 do
-        assert_receive {:message_handled, _, _}
+        assert_receive {:message_handled, _data, _metadata}
       end
 
       stop_process(pid)

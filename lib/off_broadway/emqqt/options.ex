@@ -25,6 +25,16 @@ defmodule OffBroadway.EMQTT.Options do
         type: {:in, [:reject, :drop_head]},
         default: :reject
       ],
+      buffer_durability: [
+        doc: "Set to `:durable` to write buffer log to disk, or `:transient` to keep it in memory",
+        type: {:in, [:durable, :transient]},
+        default: :transient
+      ],
+      buffer_log_dir: [
+        doc: "A string or zero-arity function that returns the directory to store the buffer log",
+        type: {:or, [{:fun, 0}, :string]},
+        default: &System.tmp_dir/0
+      ],
       topics: [
         doc: "The topics to subscribe to",
         type: {:list, {:tuple, [:string, {:custom, __MODULE__, :type_subopt, [[{:name, :name}]]}]}},

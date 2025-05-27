@@ -19,7 +19,9 @@ defmodule OffBroadway.EMQTT.Broker do
          {:ok, topics} <- Keyword.fetch(args, :topics),
          {:ok, client_id} <- Keyword.fetch(config, :clientid),
          {:ok, buffer_size} <- Keyword.fetch(args, :buffer_size),
+         {:ok, buffer_log_dir} <- Keyword.fetch(args, :buffer_log_dir),
          {:ok, buffer_overflow} <- Keyword.fetch(args, :buffer_overflow_strategy),
+         {:ok, buffer_durability} <- Keyword.fetch(args, :buffer_durability),
          {:ok, _message_handler} <- Keyword.fetch(args, :message_handler) do
       Process.flag(:trap_exit, true)
 
@@ -27,7 +29,10 @@ defmodule OffBroadway.EMQTT.Broker do
        %{
          client_id: client_id,
          buffer_size: buffer_size,
+         buffer_log: nil,
+         buffer_log_dir: buffer_log_dir,
          buffer_overflow: buffer_overflow,
+         buffer_durability: buffer_durability,
          buffer_threshold: {20.0, 70.0},
          buffer_threshold_ref: nil,
          ets_table: String.to_existing_atom(client_id),
@@ -54,6 +59,46 @@ defmodule OffBroadway.EMQTT.Broker do
       {:read_concurrency, true}
     ])
 
+    # If the buffer durability is set to :durable, we wrap the ETS table in a disk log.
+    case state.buffer_durability do
+      :durable -> {:noreply, state, {:continue, :open_buffer_log}}
+      :transient -> {:noreply, state, {:continue, :connect_to_broker}}
+    end
+  end
+
+  def handle_continue(:open_buffer_log, state) do
+    case :disk_log.open(
+           name: state.ets_table,
+           file: buffer_log_file(state.buffer_log_dir, state.ets_table),
+           format: :internal,
+           repair: true,
+           mode: :read_write
+         ) do
+      {:ok, buffer_log} ->
+        {:noreply, %{state | buffer_log: buffer_log}, {:continue, :replay_buffer_log}}
+
+      {:repaired, buffer_log, {:recovered, n_terms}, {:badbytes, n_bytes}} ->
+        Logger.warning(
+          "Repaired buffer log for client id #{state.client_id}, recovered #{n_terms} terms, bad bytes: #{n_bytes}"
+        )
+
+        {:noreply, %{state | buffer_log: buffer_log}, {:continue, :replay_buffer_log}}
+
+      {:error, reason} ->
+        Logger.error("Failed to open buffer log for client id #{state.client_id}: #{inspect(reason)}")
+        {:stop, :error, state}
+    end
+  end
+
+  def handle_continue(:replay_buffer_log, %{ets_table: ets_table, buffer_log: buffer_log} = state) do
+    Logger.info("Replaying buffer log for client id #{state.client_id}...")
+
+    stream_from_buffer_log(buffer_log)
+    |> Stream.chunk_every(100)
+    |> Stream.each(&:ets.insert(ets_table, &1))
+    |> Stream.run()
+
+    :disk_log.truncate(buffer_log)
     {:noreply, state, {:continue, :connect_to_broker}}
   end
 
@@ -96,6 +141,7 @@ defmodule OffBroadway.EMQTT.Broker do
 
   @impl true
   def handle_info({:publish, message}, state) do
+    # FIXME: This floods the output with log messages when the buffer is full.
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
       {count, :reject} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, rejecting message")
@@ -108,8 +154,8 @@ defmodule OffBroadway.EMQTT.Broker do
 
         key = :ets.first(state.ets_table)
         :ets.delete(state.ets_table, key)
-        :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
 
+        write_to_buffer(state, {:erlang.phash2({state.client_id, message}), message})
         execute_telemetry_event(state.client_id, message.topic, count, :drop_message)
         execute_telemetry_event(state.client_id, message.topic, count, :accept_message)
 
@@ -117,7 +163,7 @@ defmodule OffBroadway.EMQTT.Broker do
 
       {count, _} ->
         execute_telemetry_event(state.client_id, message.topic, count, :accept_message)
-        :ets.insert(state.ets_table, {:erlang.phash2({state.client_id, message}), message})
+        write_to_buffer(state, {:erlang.phash2({state.client_id, message}), message})
     end
 
     {:noreply, state}
@@ -137,6 +183,11 @@ defmodule OffBroadway.EMQTT.Broker do
   def terminate(_reason, state) do
     if is_reference(state.emqtt_ref), do: Process.demonitor(state.emqtt_ref)
     :ets.delete(state.ets_table)
+
+    with :durable <- state.buffer_durability,
+         buffer_log when not is_nil(buffer_log) <- state.buffer_log do
+      :disk_log.close(buffer_log)
+    end
   end
 
   @spec stop_emqtt(pid()) :: :ok
@@ -161,28 +212,65 @@ defmodule OffBroadway.EMQTT.Broker do
     end
   end
 
+  @spec stream_from_buffer_log(atom()) :: Enumerable.t()
+  def stream_from_buffer_log(buffer_log) do
+    Stream.resource(
+      fn -> :start end,
+      fn
+        :eof -> {:halt, :eof}
+        cont -> receive_next_log(buffer_log, cont)
+      end,
+      fn _ -> :ok end
+    )
+  end
+
+  @spec receive_next_log(atom() | binary(), any()) :: {list(), any()} | {:halt, :eof}
+  defp receive_next_log(_buffer_log, :eof), do: {:halt, :eof}
+
+  defp receive_next_log(buffer_log, cont) do
+    case :disk_log.chunk(buffer_log, cont) do
+      {:ok, chunk, next_cont} ->
+        {chunk, next_cont}
+
+      :eof ->
+        {:halt, :eof}
+
+      {:error, reason} ->
+        Logger.error("Error reading from buffer log: #{inspect(reason)}")
+        {:halt, :eof}
+    end
+  end
+
   @spec stream_from_buffer(atom()) :: Enumerable.t()
   def stream_from_buffer(ets_table) do
     Stream.resource(
       fn -> :ets.first(ets_table) end,
       fn
         :"$end_of_table" -> {:halt, :"$end_of_table"}
-        key -> receive_next(ets_table, key)
+        key -> receive_next_buffer(ets_table, key)
       end,
       fn _ -> :ok end
     )
   end
 
-  @spec receive_next(atom(), any()) :: {list(), any()}
-  defp receive_next(_ets_table, :"$end_of_table"), do: {:halt, :"$end_of_table"}
+  @spec receive_next_buffer(atom(), any()) :: {list(), any()}
+  defp receive_next_buffer(_ets_table, :"$end_of_table"), do: {:halt, :"$end_of_table"}
 
-  defp receive_next(ets_table, key) do
+  defp receive_next_buffer(ets_table, key) do
     case :ets.lookup(ets_table, key) do
       [] ->
         {:halt, :"$end_of_table"}
 
       [{key, value}] ->
         :ets.delete(ets_table, key)
+
+        # Whenever we read data from the buffer, truncate the disk log up to the
+        # current key to avoid keeping unnecessary data.
+        case :disk_log.info(ets_table) do
+          {:error, :no_such_log} -> :ok
+          _ -> :disk_log.truncate(ets_table)
+        end
+
         next_key = :ets.next(ets_table, key)
         {[value], next_key}
     end
@@ -198,6 +286,26 @@ defmodule OffBroadway.EMQTT.Broker do
       %{time: System.system_time(), count: 1},
       %{client_id: client_id, topic: topic, buffer_size: buffer_size}
     )
+  end
+
+  @spec write_to_buffer(map(), {atom(), any()}) :: :ok
+  defp write_to_buffer(%{buffer_durability: :durable, buffer_log: buffer_log} = state, {key, value})
+       when is_atom(buffer_log) do
+    with :ok <- :disk_log.log(buffer_log, {key, value}), :ok <- :ets.insert(state.ets_table, {key, value}), do: :ok
+  end
+
+  defp write_to_buffer(state, {key, value}), do: :ets.insert(state.ets_table, {key, value})
+
+  @spec buffer_log_file(binary() | (0 -> binary()), String.t()) :: charlist()
+  defp buffer_log_file(dir, name) when is_binary(dir) do
+    Path.join(dir, "#{name}.log")
+    |> String.to_charlist()
+  end
+
+  defp buffer_log_file(dir, name) when is_function(dir, 0) do
+    apply(dir, [])
+    |> Path.join("#{name}.log")
+    |> String.to_charlist()
   end
 
   @spec buffer_fill_percentage(non_neg_integer(), non_neg_integer()) :: float()

@@ -18,7 +18,10 @@ defmodule OffBroadway.EMQTT.OptionsTest do
             certfile: "client.crt",
             keyfile: "client.key"
           ]
-        ]
+        ],
+        buffer_size: 1000,
+        buffer_overflow_strategy: :reject,
+        buffer_durability: :durable
       ]
 
       assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
