@@ -4,7 +4,13 @@
 
 _Released unreleased_
 
-- Add support for wrapping the ETS buffer cache with a disk log (using `:disk_log`) to persist cached messages for producer.
+- Add support for wrapping the ETS buffer cache with [:disk_log](https://www.erlang.org/docs/17/man/disk_log) to persist cached messages for producer.
+  - Introduced new option `buffer_durability` which can be either `:durable` or `:transient`. When `:durable`, 
+    messages will be persisted to disk to ensure messages are not lost if the producer crashes. Defaults to
+    `:transient` (in-memory buffer only).
+  - New option `buffer_log_dir` can be either a string, or a zero-arity function that returns the directory to
+    store buffer logs.
+  - Added new telemetry events for `:durable` buffer operations.
 
 ## v0.1.1 - Patch
 

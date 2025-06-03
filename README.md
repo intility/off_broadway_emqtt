@@ -27,10 +27,14 @@ defmodule MyBroadway do
       producer: [
         module: {OffBroadway.EMQTT.Producer, 
            topics: [
-             {"test/topic1", :at_most_once},  # QoS 0
-             {"test/topic2", :at_least_once}, # QoS 1
-             {"test/topic3", :exactly_once}   # QoS 2
+             {"test/topic1", :at_most_once},     # QoS 0
+             {"test/topic2", :at_least_once},    # QoS 1
+             {"test/topic3", :exactly_once}      # QoS 2
            ],
+           buffer_size: 10_000,                  # Max number of messages in ETS cache before beginning to drop messages
+           buffer_overflow_strategy: :drop_head, # Either :drop_head or :reject
+           buffer_durability: :durable,          # Persist cached messages to disk (:durable) or in-memory only (:transient)
+           buffer_log_dir: System.tmp_dir!(),    # Where to store buffer logs if using :durable buffer
            config: [
              host: "test.mosquitto.org",
              port: 1884,
