@@ -91,18 +91,16 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   def handle_continue(:replay_buffer_log, %{ets_table: ets_table, buffer_log: buffer_log} = state) do
-    info = buffer_log_info(buffer_log)
-
     :telemetry.span(
       [:off_broadway_emqtt, :replay_buffer],
-      %{client_id: state.client_id, items: info.items},
+      %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items},
       fn ->
         stream_from_buffer_log(buffer_log)
         |> Stream.chunk_every(100)
         |> Stream.each(&:ets.insert(ets_table, &1))
         |> Stream.run()
 
-        {:disk_log.truncate(buffer_log), %{client_id: state.client_id, items: info.items}}
+        {:disk_log.truncate(buffer_log), %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items}}
       end
     )
 
@@ -185,14 +183,13 @@ defmodule OffBroadway.EMQTT.Broker do
     :ets.delete(state.ets_table)
 
     with :durable <- state.buffer_durability,
-         buffer_log when not is_nil(buffer_log) <- state.buffer_log,
-         info <- buffer_log_info(buffer_log) do
+         buffer_log when not is_nil(buffer_log) <- state.buffer_log do
       :telemetry.span(
         [:off_broadway_emqtt, :sync_buffer],
-        %{client_id: state.client_id, items: info.items},
+        %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items},
         fn ->
           :disk_log.sync(buffer_log)
-          {:disk_log.close(buffer_log), %{client_id: state.client_id, items: info.items}}
+          {:disk_log.close(buffer_log), %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items}}
         end
       )
     end

@@ -13,6 +13,49 @@ defmodule OffBroadway.EMQTT.Producer do
   ## Telemetry
 
   This library exposes the following telemetry events:
+    * `[:off_broadway_emqtt, :replay_buffer, :start]` - Dispatched when the `OffBroadway.EMQTT.Broker`
+      process is started if the `buffer_durability` option is set to `:durable`.
+
+      * measurement: `%{time: System.monotonic_time}`
+      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
+
+      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
+
+      When this event is dispatched, the `buffer_size` contains the number of messages currently in
+      the disk log, not the ETS buffer.
+
+    * `[:off_broadway_emqtt, :replay_buffer, :stop]` - Dispatched after the `OffBroadway.EMQTT.Broker`
+      process has replayed and truncated the disk log.
+
+      * measurement: `%{time: System.monotonic_time}`
+      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
+
+      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
+
+      When this event is dispatched, the `buffer_size` contains the number of messages remaining in
+      the disk log (should be 0 to indicate all logged events was replayed to the ETS cache).
+
+    * `[:off_broadway_emqtt, :sync_buffer, :start]` - Dispatched when the `OffBroadway.EMQTT.Broker`
+      process terminates and the ETS buffer is synced to the disk log.
+
+      * measurement: `%{time: System.monotonic_time}`
+      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
+
+      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
+
+      When this event is dispatched, the `buffer_size` contains the number of messages that should be
+      written to the disk log.
+
+    * `[:off_broadway_emqtt, :sync_buffer, :stop]` - Dispatched after the `OffBroadway.EMQTT.Broker`
+      process has written the ETS buffer to the disk log.
+
+      * measurement: `%{time: System.monotonic_time}`
+      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
+
+      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
+
+      When this event is dispatched, the `buffer_size` contains the number of messages that has been
+      written to the disk log.
 
     * `[:off_broadway_emqtt, :receive_messages, :start]` - Dispatched before messages are received from
       the `ETS` buffer.
@@ -63,6 +106,16 @@ defmodule OffBroadway.EMQTT.Producer do
 
       * measurement: `%{time: System.system_time, count: 1}`
       * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
+
+    * `[:off_broadway_emqtt, :buffer, :log_write]` - Dispatched when a message is written to the disk log.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
+
+      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
+
+      When this event is dispatched, the `buffer_size` contains the number of messages currently in
+      the disk log, not the ETS buffer.
   """
 
   use GenStage
