@@ -91,14 +91,21 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   def handle_continue(:replay_buffer_log, %{ets_table: ets_table, buffer_log: buffer_log} = state) do
-    Logger.info("Replaying buffer log for client id #{state.client_id}...")
+    info = buffer_log_info(buffer_log)
 
-    stream_from_buffer_log(buffer_log)
-    |> Stream.chunk_every(100)
-    |> Stream.each(&:ets.insert(ets_table, &1))
-    |> Stream.run()
+    :telemetry.span(
+      [:off_broadway_emqtt, :replay_buffer],
+      %{client_id: state.client_id, items: info.items},
+      fn ->
+        stream_from_buffer_log(buffer_log)
+        |> Stream.chunk_every(100)
+        |> Stream.each(&:ets.insert(ets_table, &1))
+        |> Stream.run()
 
-    :disk_log.truncate(buffer_log)
+        {:disk_log.truncate(buffer_log), %{client_id: state.client_id, items: info.items}}
+      end
+    )
+
     {:noreply, state, {:continue, :connect_to_broker}}
   end
 
@@ -145,24 +152,17 @@ defmodule OffBroadway.EMQTT.Broker do
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
       {count, :reject} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, rejecting message")
-
         execute_telemetry_event(state.client_id, message.topic, count, :reject_message)
-        {:noreply, [], state}
 
       {count, :drop_head} when count >= state.buffer_size ->
         Logger.warning("MQTT Broker buffer for client id #{state.client_id} is full, dropping head")
 
         key = :ets.first(state.ets_table)
         :ets.delete(state.ets_table, key)
-
-        write_to_buffer(state, {:erlang.phash2({state.client_id, message}), message})
         execute_telemetry_event(state.client_id, message.topic, count, :drop_message)
-        execute_telemetry_event(state.client_id, message.topic, count, :accept_message)
+        write_to_buffer(state, {:erlang.phash2({state.client_id, message}), message})
 
-        {:noreply, [], state}
-
-      {count, _} ->
-        execute_telemetry_event(state.client_id, message.topic, count, :accept_message)
+      {_count, _} ->
         write_to_buffer(state, {:erlang.phash2({state.client_id, message}), message})
     end
 
@@ -185,8 +185,16 @@ defmodule OffBroadway.EMQTT.Broker do
     :ets.delete(state.ets_table)
 
     with :durable <- state.buffer_durability,
-         buffer_log when not is_nil(buffer_log) <- state.buffer_log do
-      :disk_log.close(buffer_log)
+         buffer_log when not is_nil(buffer_log) <- state.buffer_log,
+         info <- buffer_log_info(buffer_log) do
+      :telemetry.span(
+        [:off_broadway_emqtt, :sync_buffer],
+        %{client_id: state.client_id, items: info.items},
+        fn ->
+          :disk_log.sync(buffer_log)
+          {:disk_log.close(buffer_log), %{client_id: state.client_id, items: info.items}}
+        end
+      )
     end
   end
 
@@ -229,15 +237,15 @@ defmodule OffBroadway.EMQTT.Broker do
 
   defp receive_next_log(buffer_log, cont) do
     case :disk_log.chunk(buffer_log, cont) do
-      {:ok, chunk, next_cont} ->
+      {{:continuation, _, _, _} = next_cont, chunk} ->
         {chunk, next_cont}
 
       :eof ->
-        {:halt, :eof}
+        {[], :eof}
 
       {:error, reason} ->
         Logger.error("Error reading from buffer log: #{inspect(reason)}")
-        {:halt, :eof}
+        {:error, reason}
     end
   end
 
@@ -264,8 +272,8 @@ defmodule OffBroadway.EMQTT.Broker do
       [{key, value}] ->
         :ets.delete(ets_table, key)
 
-        # Whenever we read data from the buffer, truncate the disk log up to the
-        # current key to avoid keeping unnecessary data.
+        # NOTE: We name the disk log after the ETS table to ensure consistency.
+        # Whenever we read data from the buffer, truncate the disk log to avoid keeping unnecessary data.
         case :disk_log.info(ets_table) do
           {:error, :no_such_log} -> :ok
           _ -> :disk_log.truncate(ets_table)
@@ -289,12 +297,23 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   @spec write_to_buffer(map(), {atom(), any()}) :: :ok
-  defp write_to_buffer(%{buffer_durability: :durable, buffer_log: buffer_log} = state, {key, value})
+  defp write_to_buffer(%{buffer_durability: :durable, buffer_log: buffer_log} = state, {hash, message})
        when is_atom(buffer_log) do
-    with :ok <- :disk_log.log(buffer_log, {key, value}), :ok <- :ets.insert(state.ets_table, {key, value}), do: :ok
+    :ok = :disk_log.log(buffer_log, {hash, message})
+    true = :ets.insert(state.ets_table, {hash, message})
+
+    info = buffer_log_info(buffer_log)
+    execute_telemetry_event(state.client_id, message.topic, info.items, :log_write)
+    execute_telemetry_event(state.client_id, message.topic, :ets.info(state.ets_table, :size), :accept_message)
   end
 
-  defp write_to_buffer(state, {key, value}), do: :ets.insert(state.ets_table, {key, value})
+  defp write_to_buffer(state, {hash, message}) do
+    true = :ets.insert(state.ets_table, {hash, message})
+    execute_telemetry_event(state.client_id, message.topic, :ets.info(state.ets_table, :size), :accept_message)
+  end
+
+  @spec buffer_log_info(atom()) :: map()
+  defp buffer_log_info(buffer_log), do: Enum.into(:disk_log.info(buffer_log), %{})
 
   @spec buffer_log_file(binary() | (0 -> binary()), String.t()) :: charlist()
   defp buffer_log_file(dir, name) when is_binary(dir) do
