@@ -2,7 +2,7 @@
 
 ## v0.2.0 - Patch
 
-_Released unreleased_
+_Released 2025-06-03_
 
 - Add support for wrapping the ETS buffer cache with [:disk_log](https://www.erlang.org/docs/17/man/disk_log) to persist cached messages for producer.
   - Introduced new option `buffer_durability` which can be either `:durable` or `:transient`. When `:durable`, 
