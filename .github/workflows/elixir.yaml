@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: Elixir CI
 
 on:
   pull_request:
