@@ -1,7 +1,9 @@
 # OffBroadway.EMQTT
 
-![pipeline status](https://github.com/Intility/off_broadway_emqtt/actions/workflows/elixir.yaml/badge.svg?event=push&branch=main)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-blue.svg?style=plastic)](https://hexdocs.pm/off_broadway_emqtt/readme.html)
+![Elixir CI](https://github.com/Intility/off_broadway_emqtt/actions/workflows/elixir.yaml/badge.svg?event=push&branch=main)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Hex version badge](https://img.shields.io/hexpm/v/off_broadway_emqtt.svg)](https://hex.pm/packages/off_broadway_emqtt)
+[![Hexdocs badge](https://img.shields.io/badge/docs-hexdocs-purple)](https://hexdocs.pm/off_broadway_emqtt/readme.html)
 
 An MQTT connector based on [emqtt](https://github.com/emqx/emqtt) for [Broadway](https://github.com/dashbitco/broadway).
 
@@ -72,8 +74,8 @@ by adding `off_broadway_emqtt` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:off_broadway_emqtt, github: "Intility/off_broadway_emqtt", tag: "v0.1.0"},  # Waiting for upstream deps resolution fix
-    {:cowlib, "~> 2.12", override: true}  # Required for `:emqtt` dependency resolution
+    {:off_broadway_emqtt, github: "intility/off_broadway_emqtt", tag: "v0.2.0"},  # Waiting for upstream deps resolution fix
+    {:cowlib, "~> 2.15", override: true}                                          # Required for `:emqtt` dependency resolution
   ]
 end
 ```

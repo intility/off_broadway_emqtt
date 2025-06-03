@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.0 - Patch
+
+_Released unreleased_
+
+- Add support for wrapping the ETS buffer cache with a disk log (using `:disk_log`) to persist cached messages for producer.
+
 ## v0.1.1 - Patch
 
 _Released unreleased_
