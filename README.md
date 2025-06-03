@@ -1,7 +1,7 @@
 # OffBroadway.EMQTT
 
 ![Elixir CI](https://github.com/Intility/off_broadway_emqtt/actions/workflows/elixir.yaml/badge.svg?event=push&branch=main)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0 ](https://img.shields.io/badge/License-Apache2-yellow.svg)](https://opensource.org/license/apache-2-0)
 [![Hex version badge](https://img.shields.io/hexpm/v/off_broadway_emqtt.svg)](https://hex.pm/packages/off_broadway_emqtt)
 [![Hexdocs badge](https://img.shields.io/badge/docs-hexdocs-purple)](https://hexdocs.pm/off_broadway_emqtt/readme.html)
 
