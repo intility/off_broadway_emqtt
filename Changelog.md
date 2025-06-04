@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 - Patch
+
+_Released unreleased_
+
+- If `:clean_start` option is `true`, truncate the buffer log file and skip replay when the producer starts.
+
 ## v0.2.0 - Patch
 
 _Released 2025-06-03_

@@ -193,6 +193,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       broadway_opts =
         Keyword.merge(@broadway_opts, buffer_log_dir: System.tmp_dir!(), buffer_durability: :durable)
         |> put_in([:config, :clientid], client_id)
+        |> put_in([:config, :clean_start], false)
 
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])

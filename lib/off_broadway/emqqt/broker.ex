@@ -91,18 +91,25 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   def handle_continue(:replay_buffer_log, %{ets_table: ets_table, buffer_log: buffer_log} = state) do
-    :telemetry.span(
-      [:off_broadway_emqtt, :replay_buffer],
-      %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items},
-      fn ->
-        stream_from_buffer_log(buffer_log)
-        |> Stream.chunk_every(100)
-        |> Stream.each(&:ets.insert(ets_table, &1))
-        |> Stream.run()
+    case get_in(state, [:emqtt_config, :clean_start]) do
+      true ->
+        :disk_log.truncate(buffer_log)
 
-        {:disk_log.truncate(buffer_log), %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items}}
-      end
-    )
+      false ->
+        :telemetry.span(
+          [:off_broadway_emqtt, :replay_buffer],
+          %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items},
+          fn ->
+            stream_from_buffer_log(buffer_log)
+            |> Stream.chunk_every(100)
+            |> Stream.each(&:ets.insert(ets_table, &1))
+            |> Stream.run()
+
+            {:disk_log.truncate(buffer_log),
+             %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items}}
+          end
+        )
+    end
 
     {:noreply, state, {:continue, :connect_to_broker}}
   end
