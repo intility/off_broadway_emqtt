@@ -1,7 +1,7 @@
 defmodule OffBroadway.EMQTT.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.2.1"
   @description "An MQTT connector based on emqtt for Broadway."
   @source_url "https://github.com/Intility/off_broadway_emqtt"
 

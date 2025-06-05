@@ -2,9 +2,10 @@
 
 ## v0.2.1 - Patch
 
-_Released unreleased_
+_Released 2025-06-05_
 
 - If `:clean_start` option is `true`, truncate the buffer log file and skip replay when the producer starts.
+- Properly disconnect from the MQTT broker on terminate.
 
 ## v0.2.0 - Patch
 
