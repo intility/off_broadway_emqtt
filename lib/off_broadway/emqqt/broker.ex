@@ -146,12 +146,6 @@ defmodule OffBroadway.EMQTT.Broker do
   end
 
   @impl true
-  def handle_cast(:stop_emqtt, state) do
-    if Process.alive?(state.emqtt), do: :emqtt.stop(state.emqtt)
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_info({:publish, message}, state) do
     # FIXME: This floods the output with log messages when the buffer is full.
     case {:ets.info(state.ets_table, :size), state.buffer_overflow} do
@@ -186,6 +180,7 @@ defmodule OffBroadway.EMQTT.Broker do
 
   @impl true
   def terminate(_reason, state) do
+    if Process.alive?(state.emqtt), do: :emqtt.disconnect(state.emqtt)
     if is_reference(state.emqtt_ref), do: Process.demonitor(state.emqtt_ref)
     :ets.delete(state.ets_table)
 
@@ -196,14 +191,12 @@ defmodule OffBroadway.EMQTT.Broker do
         %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items},
         fn ->
           :disk_log.sync(buffer_log)
-          {:disk_log.close(buffer_log), %{client_id: state.client_id, buffer_size: buffer_log_info(buffer_log).items}}
+          buffer_size = buffer_log_info(buffer_log).items
+          {:disk_log.close(buffer_log), %{client_id: state.client_id, buffer_size: buffer_size}}
         end
       )
     end
   end
-
-  @spec stop_emqtt(pid()) :: :ok
-  def stop_emqtt(pid), do: GenServer.cast(pid, :stop_emqtt)
 
   @spec check_buffer_threshold(non_neg_integer(), {non_neg_integer(), non_neg_integer()}, atom(), pid()) :: :ok
   def check_buffer_threshold(buffer_size, {min_threshold, max_threshold}, ets_table, emqtt) do

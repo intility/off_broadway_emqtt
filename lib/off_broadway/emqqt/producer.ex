@@ -186,7 +186,6 @@ defmodule OffBroadway.EMQTT.Producer do
   @impl Producer
   def prepare_for_draining(%{receive_timer: timer} = state) do
     timer && Process.cancel_timer(timer)
-    Broker.stop_emqtt(state.emqtt)
     {:noreply, [], %{state | drain: true, receive_timer: nil}}
   end
 
