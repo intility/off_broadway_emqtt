@@ -15,13 +15,13 @@ permissions:
 jobs:
   build:
     name: Build and test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
           - elixir: "1.14"
-            otp: "23.0"
+            otp: "24.3"
 
           - elixir: "1.18"
             otp: "28.0"
