@@ -17,7 +17,14 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
   defmodule MessageServer do
     def start_link do
-      with {:ok, pid} <- :emqtt.start_link(host: ~c"localhost", port: 1883, clientid: "message-server"),
+      with {:ok, pid} <-
+             :emqtt.start_link(
+               host: ~c"localhost",
+               port: 1884,
+               username: "rw",
+               password: "readwrite",
+               clientid: "message-server"
+             ),
            {:ok, _} <- :emqtt.connect(pid) do
         {:ok, pid}
       end
@@ -140,6 +147,9 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
+      # Wait a bit for Broadway to fully start and connect before pushing messages
+      Process.sleep(100)
+
       MessageServer.push_messages(message_server, "test", 1..5)
 
       for _message <- 1..5 do
@@ -158,8 +168,8 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         |> put_in([:config, :clientid], client_id)
 
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
+      # Attach telemetry listener BEFORE starting Broadway
       capture_log(fn ->
         :ok =
           :telemetry.attach(
@@ -171,6 +181,11 @@ defmodule OffBroadway.EMQTT.ProducerTest do
             nil
           )
       end)
+
+      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
+      # Wait a bit for Broadway to fully start and connect before pushing messages
+      Process.sleep(100)
 
       MessageServer.push_messages(message_server, "test", 1..5)
 
@@ -196,8 +211,8 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         |> put_in([:config, :clean_start], false)
 
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
+      # Attach telemetry listener BEFORE starting Broadway to catch initialization events
       capture_log(fn ->
         :ok =
           :telemetry.attach(
@@ -209,6 +224,8 @@ defmodule OffBroadway.EMQTT.ProducerTest do
             nil
           )
       end)
+
+      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
       assert_receive {:telemetry_event, [:off_broadway_emqtt, :replay_buffer, :start], _, %{client_id: ^client_id}},
                      200
@@ -226,7 +243,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         |> put_in([:config, :clientid], client_id)
 
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :exactly_once}]])
 
       capture_log(fn ->
         :ok =
@@ -240,6 +256,12 @@ defmodule OffBroadway.EMQTT.ProducerTest do
           )
       end)
 
+      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :exactly_once}]])
+
+      # Wait for Broadway to start and connect
+      Process.sleep(100)
+
+      # Push messages rapidly to fill the buffer
       MessageServer.push_messages(message_server, "test", 1..6)
 
       assert_receive {:telemetry_event, [:off_broadway_emqtt, :buffer, :reject_message], %{time: _, count: 1},

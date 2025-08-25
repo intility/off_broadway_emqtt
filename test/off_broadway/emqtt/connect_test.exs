@@ -1,12 +1,12 @@
 defmodule OffBroadway.EMQTT.ConnectTest do
   use ExUnit.Case
 
-  @hostname ~c"test.mosquitto.org"
+  @hostname ~c"localhost"
   @host [host: @hostname]
   @credentials [username: "rw", password: "readwrite"]
-  @cert_dir Path.join(:code.priv_dir(:off_broadway_emqtt), "cert")
+  @cert_dir Path.join(File.cwd!(), ".mosquitto/certs")
   @ssl_opts [
-    cacertfile: Path.join(@cert_dir, "mosquitto.org.crt"),
+    cacertfile: Path.join(@cert_dir, "ca.crt"),
     server_name_indication: @hostname,
     verify: :verify_peer
   ]
@@ -21,36 +21,36 @@ defmodule OffBroadway.EMQTT.ConnectTest do
   @opts_8884 @host ++ [ssl: true, ssl_opts: @ssl_opts ++ @client_cert, port: 8884]
   @opts_8885 @host ++ @credentials ++ [ssl: true, ssl_opts: @ssl_opts, port: 8885]
 
-  describe "connecting to test.mosquitto.org" do
-    test "at port 1883" do
+  describe "connecting to local Mosquitto" do
+    test "at port 1883 without authentication" do
       {:ok, pid} = :emqtt.start_link(@opts_1883)
 
       assert {:ok, _} = :emqtt.connect(pid)
       stop_emqtt(pid)
     end
 
-    test "at port 1884 using credentials" do
+    test "at port 1884 using username/password authentication" do
       {:ok, pid} = :emqtt.start_link(@opts_1884)
 
       assert {:ok, _} = :emqtt.connect(pid)
       stop_emqtt(pid)
     end
 
-    test "at port 8883 using TLS and ca cert" do
+    test "at port 8883 using TLS without authentication" do
       {:ok, pid} = :emqtt.start_link(@opts_8883)
 
       assert {:ok, _} = :emqtt.connect(pid)
       stop_emqtt(pid)
     end
 
-    test "at port 8884 using TLS, ca cert and client cert" do
+    test "at port 8884 using TLS with client certificate authentication" do
       {:ok, pid} = :emqtt.start_link(@opts_8884)
 
       assert {:ok, _} = :emqtt.connect(pid)
       stop_emqtt(pid)
     end
 
-    test "at port 8885 using TLS, ca cert, client cert and credentials" do
+    test "at port 8885 using TLS with username/password authentication" do
       {:ok, pid} = :emqtt.start_link(@opts_8885)
 
       assert {:ok, _} = :emqtt.connect(pid)
