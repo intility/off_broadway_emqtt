@@ -2,7 +2,14 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2.0
     ports:
-      - "1883:1883"
-      - "1884:1884"
+      - "1883:1883"  # MQTT without authentication
+      - "1884:1884"  # MQTT with username/password authentication
+      - "8883:8883"  # MQTT over TLS without authentication
+      - "8884:8884"  # MQTT over TLS with client certificates
+      - "8885:8885"  # MQTT over TLS with username/password
     volumes:
-      - .mosquitto:/mosquitto/config
+      - ./.mosquitto:/mosquitto/config
+      - ./.mosquitto/data:/mosquitto/data
+      - ./.mosquitto/log:/mosquitto/log
+      - ./.mosquitto/certs:/mosquitto/certs
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
