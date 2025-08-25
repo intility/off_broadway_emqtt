@@ -56,7 +56,7 @@ defmodule OffBroadway.EMQTT.MixProject do
       {:broadway, "~> 1.2"},
       {:emqtt, "~> 1.11"},
       {:cowlib, "~> 2.12", only: :dev, override: true},
-      {:ex_doc, "~> 0.37", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.38", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: :dev},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18", only: :test}
