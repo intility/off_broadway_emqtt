@@ -1,150 +1,118 @@
 defmodule OffBroadway.EMQTT.Producer do
   @moduledoc """
-  An MQTT producer based on [emqtt](https://github.com/emqx/emqtt) for Broadway.
+  A Broadway producer for MQTT using [emqtt](https://github.com/emqx/emqtt).
+
+  Each producer instance maintains its own MQTT connection with protocol-level
+  backpressure via `max_inflight` and delayed acknowledgements.
 
   ## Producer options
 
   #{NimbleOptions.docs(OffBroadway.EMQTT.Options.definition())}
 
-  ## Acknowledgements
+  ## Backpressure
 
-  TBD
+  This producer uses MQTT's `max_inflight` setting for backpressure. The broker
+  will not send more than `max_inflight` unacknowledged QoS 1/2 messages.
+  Messages are only acknowledged after Broadway successfully processes them.
+
+  For QoS 0 messages, there is no protocol-level backpressure. Consider using
+  QoS 1 for high-throughput scenarios.
+
+  ## Shared Subscriptions
+
+  When using `concurrency > 1`, you must configure a `shared_group` to distribute
+  messages across producer instances. Without shared subscriptions, each producer
+  would receive all messages (duplicates).
 
   ## Telemetry
 
   This library exposes the following telemetry events:
-    * `[:off_broadway_emqtt, :replay_buffer, :start]` - Dispatched when the `OffBroadway.EMQTT.Broker`
-      process is started if the `buffer_durability` option is set to `:durable`.
 
-      * measurement: `%{time: System.monotonic_time}`
-      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
-
-      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
-
-      When this event is dispatched, the `buffer_size` contains the number of messages currently in
-      the disk log, not the ETS buffer.
-
-    * `[:off_broadway_emqtt, :replay_buffer, :stop]` - Dispatched after the `OffBroadway.EMQTT.Broker`
-      process has replayed and truncated the disk log.
-
-      * measurement: `%{time: System.monotonic_time}`
-      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
-
-      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
-
-      When this event is dispatched, the `buffer_size` contains the number of messages remaining in
-      the disk log (should be 0 to indicate all logged events was replayed to the ETS cache).
-
-    * `[:off_broadway_emqtt, :sync_buffer, :start]` - Dispatched when the `OffBroadway.EMQTT.Broker`
-      process terminates and the ETS buffer is synced to the disk log.
-
-      * measurement: `%{time: System.monotonic_time}`
-      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
-
-      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
-
-      When this event is dispatched, the `buffer_size` contains the number of messages that should be
-      written to the disk log.
-
-    * `[:off_broadway_emqtt, :sync_buffer, :stop]` - Dispatched after the `OffBroadway.EMQTT.Broker`
-      process has written the ETS buffer to the disk log.
-
-      * measurement: `%{time: System.monotonic_time}`
-      * metadata: `%{client_id: string, buffer_size: non_neg_integer}`
-
-      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
-
-      When this event is dispatched, the `buffer_size` contains the number of messages that has been
-      written to the disk log.
-
-    * `[:off_broadway_emqtt, :receive_messages, :start]` - Dispatched before messages are received from
-      the `ETS` buffer.
-
-        * measurement: `%{time: System.monotonic_time}`
-        * metadata: `%{client_id: string, demand: non_neg_integer}`
-
-
-     * `[:off_broadway_emqtt, :receive_messages, :stop]` - Dispatched after messages have been
-      received from the `ETS` buffer and "wrapped".
-
-        * measurement: `%{time: native_time}`
-        * metadata: `%{client_id: string, topics: [string], received: non_neg_integer, demand: non_neg_integer}`
-
-
-    * `[:off_broadway_emqtt, :receive_messages, :exception]` - Dispatched after a failure while
-      receiving messages from the `ETS` buffer.
-
-      * measurement: `%{duration: native_time}`
-      * metadata: `%{client_id: string, demand: non_neg_integer, reason: reason, stacktrace: stacktrace}`
-
-
-    * `[:off_broadway_emqtt, :receive_messages, :ack]` - Dispatched when acking a message if using
-      the default `OffBroadway.EMQTT.MessageHandler` implementation.
+    * `[:off_broadway_emqtt, :receive_message, :ack]` - Dispatched when acknowledging
+      a message to the MQTT broker.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * metadata: `%{topic: string, receipt: receipt}`
+      * metadata: `%{topic: string, qos: integer, status: :on_success | :on_failure}`
 
+    * `[:off_broadway_emqtt, :connection, :up]` - Dispatched when connected to broker.
 
-    * `[:off_broadway_emqtt, :buffer, :accept_message]` - Dispatched when a message is stored
-      into the `ETS` buffer.
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{client_id: string, producer_index: integer}`
 
-      * measurement: `%{time: System.system_time, count: 1}`
-      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
+    * `[:off_broadway_emqtt, :connection, :down]` - Dispatched when connection lost.
 
-
-    * `[:off_broadway_emqtt, :buffer, :reject_message]` - Dispatched when a message is rejected
-      to be stored in the `ETS` buffer because it is full. This occurs when the buffer is full
-      and the `buffer_overflow_strategy` is set to `:reject`.
-
-      * measurement: `%{time: System.system_time, count: 1}`
-      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
-
-
-    * `[:off_broadway_emqtt, :buffer, :drop_message]` - Dispatched when a message is dropped from
-      the `ETS` buffer to make space for a new. This occurs when the buffer is full and the
-      `buffer_overflow_strategy` is set to `:drop_head`.
-
-      * measurement: `%{time: System.system_time, count: 1}`
-      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
-
-    * `[:off_broadway_emqtt, :buffer, :log_write]` - Dispatched when a message is written to the disk log.
-
-      * measurement: `%{time: System.system_time, count: 1}`
-      * metadata: `%{client_id: string, topic: string, buffer_size: non_neg_integer}`
-
-      _This event is only dispatched if the `buffer_durability` option is set to `:durable`._
-
-      When this event is dispatched, the `buffer_size` contains the number of messages currently in
-      the disk log, not the ETS buffer.
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{client_id: string, producer_index: integer, reason: term}`
   """
 
   use GenStage
+  require Logger
+
   alias Broadway.Producer
-  alias OffBroadway.EMQTT.Broker
+  alias OffBroadway.EMQTT.{Connection, Acknowledger}
   alias NimbleOptions.ValidationError
 
   @behaviour Producer
 
+  defstruct [
+    :emqtt_pid,
+    :emqtt_ref,
+    :config,
+    :topics,
+    :shared_group,
+    :max_inflight,
+    :producer_index,
+    :broadway_name,
+    :message_handler,
+    :client_id
+  ]
+
   @impl true
   def init(opts) do
-    with name when is_atom(name) <- get_in(opts, [:config, :name]),
-         client_id when is_binary(client_id) <- get_in(opts, [:config, :clientid]),
-         emqtt when is_pid(emqtt) <- GenServer.whereis(:"#{OffBroadway.EMQTT.Broker}-#{name}") do
-      {:producer,
-       %{
-         demand: 0,
-         drain: false,
-         topics: opts[:topics],
-         emqtt: emqtt,
-         emqtt_name: name,
-         receive_timer: nil,
-         receive_interval: 100,
-         client_id: client_id,
-         message_handler: opts[:message_handler],
-         broadway: get_in(opts, [:broadway, :name])
-       }}
-    else
-      nil -> {:stop, :error, nil}
+    Process.flag(:trap_exit, true)
+
+    config = opts[:config]
+    producer_index = opts[:producer_index] || 0
+    max_inflight = opts[:max_inflight] || 100
+
+    emqtt_config =
+      config
+      |> Keyword.put(:max_inflight, max_inflight)
+
+    case Connection.start_link(emqtt_config, producer_index) do
+      {:ok, emqtt_pid} ->
+        emqtt_ref = Process.monitor(emqtt_pid)
+
+        case Connection.subscribe(emqtt_pid, opts[:shared_group], opts[:topics]) do
+          :ok ->
+            client_id = Keyword.get(config, :clientid, "unknown")
+
+            emit_telemetry(:up, %{
+              client_id: client_id,
+              producer_index: producer_index
+            })
+
+            state = %__MODULE__{
+              emqtt_pid: emqtt_pid,
+              emqtt_ref: emqtt_ref,
+              config: config,
+              topics: opts[:topics],
+              shared_group: opts[:shared_group],
+              max_inflight: max_inflight,
+              producer_index: producer_index,
+              broadway_name: opts[:broadway_name],
+              message_handler: opts[:message_handler],
+              client_id: client_id
+            }
+
+            {:producer, state}
+
+          {:error, reason} ->
+            {:stop, {:subscribe_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:stop, {:connection_failed, reason}}
     end
   end
 
@@ -154,29 +122,24 @@ defmodule OffBroadway.EMQTT.Producer do
 
     case NimbleOptions.validate(client_opts, OffBroadway.EMQTT.Options.definition()) do
       {:ok, opts} ->
-        with {:ok, broadway} <- Keyword.fetch(broadway_opts, :name),
-             {:ok, config} <- Keyword.fetch(opts, :config),
-             {:ok, client_id} <- Keyword.fetch(config, :clientid),
-             config <- Keyword.put(config, :name, emqtt_process_name(client_id)) do
-          :persistent_term.put(broadway, %{
-            config: config,
-            # FIXME Acking should be configurable based on if the :emqtt process is started
-            # is configured to auto-ack or not.
-            on_success: :ack,
-            on_failure: :noop
-          })
+        broadway_name = Keyword.fetch!(broadway_opts, :name)
+        concurrency = get_in(broadway_opts, [:producer, :concurrency]) || 1
 
-          new_opts = Keyword.put(opts, :config, config)
+        validate_shared_group!(opts[:shared_group], concurrency)
 
-          with_default_opts =
-            put_in(broadway_opts, [:producer, :module], {producer_module, new_opts})
+        :persistent_term.put(broadway_name, %{
+          on_success: opts[:on_success],
+          on_failure: opts[:on_failure]
+        })
 
-          children = [
-            %{id: :broker, start: {OffBroadway.EMQTT.Broker, :start_link, [new_opts]}}
-          ]
+        new_opts =
+          opts
+          |> Keyword.put(:broadway_name, broadway_name)
 
-          {children, with_default_opts}
-        end
+        updated_broadway_opts =
+          put_in(broadway_opts, [:producer, :module], {producer_module, new_opts})
+
+        {[], updated_broadway_opts}
 
       {:error, error} ->
         raise ArgumentError, format_error(error)
@@ -184,16 +147,98 @@ defmodule OffBroadway.EMQTT.Producer do
   end
 
   @impl Producer
-  def prepare_for_draining(%{receive_timer: timer} = state) do
-    timer && Process.cancel_timer(timer)
-    {:noreply, [], %{state | drain: true, receive_timer: nil}}
+  def prepare_for_draining(state) do
+    if state.emqtt_pid && Process.alive?(state.emqtt_pid) do
+      Connection.pause(state.emqtt_pid)
+    end
+
+    {:noreply, [], state}
   end
 
-  @spec emqtt_process_name(String.t()) :: atom()
-  def emqtt_process_name(client_id), do: String.to_atom(client_id)
+  @impl true
+  def handle_info({:publish, mqtt_msg}, state) do
+    broadway_msg = build_broadway_message(mqtt_msg, state)
+    {:noreply, [broadway_msg], state}
+  end
 
-  def message_handler_module({message_handler_module, _}), do: message_handler_module
-  def message_handler_module(message_handler_module), do: message_handler_module
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{emqtt_ref: ref} = state) do
+    emit_telemetry(:down, %{
+      client_id: state.client_id,
+      producer_index: state.producer_index,
+      reason: reason
+    })
+
+    {:stop, {:emqtt_down, reason}, state}
+  end
+
+  def handle_info({:EXIT, pid, reason}, %{emqtt_pid: pid} = state) do
+    emit_telemetry(:down, %{
+      client_id: state.client_id,
+      producer_index: state.producer_index,
+      reason: reason
+    })
+
+    {:stop, {:emqtt_exit, reason}, state}
+  end
+
+  def handle_info({:disconnected, _reason_code, _props}, state) do
+    {:noreply, [], state}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, [], state}
+  end
+
+  @impl true
+  def handle_demand(_demand, state) do
+    {:noreply, [], state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.emqtt_pid && Process.alive?(state.emqtt_pid) do
+      Process.demonitor(state.emqtt_ref, [:flush])
+      Connection.disconnect(state.emqtt_pid)
+    end
+
+    :ok
+  end
+
+  defp build_broadway_message(mqtt_msg, state) do
+    message_handler = get_message_handler_module(state.message_handler)
+    ack_ref = state.broadway_name
+
+    case apply(message_handler, :handle_message, [mqtt_msg, ack_ref, []]) do
+      %Broadway.Message{} = msg ->
+        ack_data = Acknowledger.build_ack_data(mqtt_msg, state.emqtt_pid)
+        %{msg | acknowledger: {Acknowledger, ack_ref, ack_data}}
+
+      other ->
+        other
+    end
+  end
+
+  defp get_message_handler_module({module, _opts}), do: module
+  defp get_message_handler_module(module), do: module
+
+  defp validate_shared_group!(nil, concurrency) when concurrency > 1 do
+    raise ArgumentError, """
+    shared_group is required when using concurrency > 1.
+
+    Without shared subscriptions, each producer instance receives ALL messages,
+    causing duplicates. Configure shared_group to distribute messages:
+
+        producer: [
+          module: {OffBroadway.EMQTT.Producer,
+            shared_group: "my_group",
+            ...
+          },
+          concurrency: #{concurrency}
+        ]
+    """
+  end
+
+  defp validate_shared_group!(_shared_group, _concurrency), do: :ok
 
   defp format_error(%ValidationError{keys_path: [], message: message}) do
     "invalid configuration given to OffBroadway.EMQTT.Producer.prepare_for_start/2, " <>
@@ -205,57 +250,19 @@ defmodule OffBroadway.EMQTT.Producer do
       message
   end
 
-  @spec schedule_receive_messages(interval :: non_neg_integer()) :: reference()
-  defp schedule_receive_messages(interval),
-    do: Process.send_after(self(), :receive_messages, interval)
-
-  defp handle_receive_messages(%{drain: true} = state), do: {:noreply, [], state}
-  defp handle_receive_messages(%{demand: 0} = state), do: {:noreply, [], state}
-
-  defp handle_receive_messages(%{demand: demand, receive_timer: nil} = state) when demand > 0 do
-    messages = receive_messages_from_handler(state)
-
-    receive_timer =
-      case length(messages) do
-        0 -> schedule_receive_messages(state.receive_interval)
-        _ -> schedule_receive_messages(0)
-      end
-
-    {:noreply, messages, %{state | demand: state.demand - length(messages), receive_timer: receive_timer}}
-  end
-
-  defp receive_messages_from_handler(state) do
-    metadata = %{client_id: state.client_id, demand: state.demand}
-    message_handler_module = message_handler_module(state.message_handler)
-
-    :telemetry.span(
-      [:off_broadway_emqtt, :receive_messages],
-      metadata,
-      fn ->
-        messages =
-          Broker.stream_from_buffer(state.emqtt_name)
-          |> Stream.take(state.demand)
-          |> Stream.map(&apply(message_handler_module, :handle_message, [&1, state.broadway, []]))
-          |> Enum.into([])
-
-        topics =
-          Enum.map(messages, &Map.get(&1.metadata, :topic))
-          |> Enum.reject(&is_nil/1)
-
-        {messages, Map.put(metadata, :received, length(messages)) |> Map.put(:topics, topics)}
-      end
+  defp emit_telemetry(:up, metadata) do
+    :telemetry.execute(
+      [:off_broadway_emqtt, :connection, :up],
+      %{time: System.system_time()},
+      metadata
     )
   end
 
-  @impl true
-  def handle_demand(demand, %{receive_timer: timer} = state) do
-    timer && Process.cancel_timer(timer)
-    handle_receive_messages(%{state | demand: state.demand + demand, receive_timer: nil})
-  end
-
-  @impl true
-  def handle_info(:receive_messages, %{receive_timer: timer} = state) do
-    timer && Process.cancel_timer(timer)
-    handle_receive_messages(%{state | receive_timer: nil})
+  defp emit_telemetry(:down, metadata) do
+    :telemetry.execute(
+      [:off_broadway_emqtt, :connection, :down],
+      %{time: System.system_time()},
+      metadata
+    )
   end
 end

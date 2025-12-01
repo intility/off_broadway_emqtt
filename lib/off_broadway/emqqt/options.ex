@@ -15,25 +15,37 @@ defmodule OffBroadway.EMQTT.Options do
 
   def definition do
     [
-      buffer_size: [
-        doc: "The maximum number of messages that can be buffered",
+      shared_group: [
+        doc: """
+        Shared subscription group name. When set, topics are subscribed as
+        `$share/{group}/{topic}` which distributes messages across all producer
+        instances. Required when using concurrency > 1.
+        """,
+        type: :string,
+        required: false
+      ],
+      max_inflight: [
+        doc: """
+        Maximum unACKed QoS 1/2 messages per producer. This is the primary
+        backpressure mechanism - the broker will not send more messages until
+        existing ones are acknowledged.
+        """,
         type: :pos_integer,
-        default: 10_000
+        default: 100
       ],
-      buffer_overflow_strategy: [
-        doc: "The strategy to use when the buffer is full",
-        type: {:in, [:reject, :drop_head]},
-        default: :reject
+      on_success: [
+        doc: "Action when Broadway message succeeds. :ack sends PUBACK to broker.",
+        type: {:in, [:ack, :noop]},
+        default: :ack
       ],
-      buffer_durability: [
-        doc: "Set to `:durable` to write buffer log to disk, or `:transient` to keep it in memory",
-        type: {:in, [:durable, :transient]},
-        default: :transient
-      ],
-      buffer_log_dir: [
-        doc: "A string or zero-arity function that returns the directory to store the buffer log",
-        type: {:or, [{:fun, 0}, :string]},
-        default: &System.tmp_dir/0
+      on_failure: [
+        doc: """
+        Action when Broadway message fails.
+        - :noop - don't ACK, broker will redeliver after timeout (for QoS 1/2)
+        - :ack - ACK anyway, message won't be redelivered
+        """,
+        type: {:in, [:ack, :noop]},
+        default: :noop
       ],
       topics: [
         doc: "The topics to subscribe to",
@@ -114,12 +126,15 @@ defmodule OffBroadway.EMQTT.Options do
             default: false
           ],
           clientid: [
-            doc: "Specify the client identifier.",
+            doc: "Specify the client identifier. Each producer will append '_N' where N is the producer index.",
             type: :string,
             default: :emqtt.random_client_id()
           ],
           clean_start: [
-            doc: "Whether the server should discard any existing sessions and start a new one.",
+            doc: """
+            Whether the server should discard any existing sessions.
+            Set to false for message durability - broker will resend unACKed QoS 1/2 messages on reconnect.
+            """,
             type: :boolean,
             default: true
           ],
@@ -131,53 +146,32 @@ defmodule OffBroadway.EMQTT.Options do
           keepalive: [
             doc: """
             The maximum time interval in seconds that is permitted to elapse between the client
-            finishes transmitting one MQTT Control Packet and starts sending the next. Will be
-            replaced by server `keepalive` from MQTT server.
+            finishes transmitting one MQTT Control Packet and starts sending the next.
             """,
             type: :pos_integer
           ],
-          max_inflight: [
-            doc: """
-            The maximum number of QoS 1 and QoS 2 packets in flight. This means the number of packets
-            that have been sent, but not yet acked. Will be replaced by server `Receive-Maximum` property
-            in a `CONNACK` package. In that case, the lesser of the two values will act as the limit.
-            """,
-            type: {:or, [:pos_integer, {:in, [:infinity]}]},
-            default: :infinity
-          ],
           retry_interval: [
-            doc: """
-            Interval in seconds to retry sending packets that have been sent but not received
-            a response.
-            """,
+            doc: "Interval in seconds to retry sending packets that have not received a response.",
             type: :pos_integer,
             default: 30
           ],
           will_topic: [
-            doc: """
-            Topic of `will` message, a predefined message that the client sets to be sent by the
-            server in case of an unexpected disconnects.
-            """,
+            doc: "Topic of will message, sent by broker on unexpected disconnect.",
             type: :string
           ],
           will_payload: [
-            doc: "The payload of the `will` message.",
+            doc: "The payload of the will message.",
             type: :string
           ],
           will_retain: [
-            doc: "Whether the `will` message should be published as a retained message.",
+            doc: "Whether the will message should be published as retained.",
             type: :boolean,
             default: false
           ],
           will_qos: [
-            doc: "The QoS level of the `will` message.",
+            doc: "The QoS level of the will message.",
             type: {:in, [0, 1, 2]},
             default: 0
-          ],
-          auto_ack: [
-            doc: "The client process will automacally send ack packages like `PUBACK` when receiving a packet.",
-            type: :boolean,
-            default: true
           ],
           ack_timeout: [
             doc: "The timeout in seconds for the ack package.",
@@ -185,23 +179,16 @@ defmodule OffBroadway.EMQTT.Options do
             default: 30
           ],
           force_ping: [
-            doc: """
-            If false and any other packets are sent during the `keepalive` interval, the ping packet will
-            not be sent this time. If true, the ping packet will be sent regardless of other packets.
-            """,
+            doc: "If true, ping is sent regardless of other packet activity.",
             type: :boolean,
             default: false
           ],
           custom_auth_callbacks: [
-            doc: """
-            A map of custom authentication callback MFAs. This configuration enables enhanced authentication
-            mechanisms in MQTT v5.
-            """,
+            doc: "A map of custom authentication callback MFAs for MQTT v5.",
             type: {:map, :atom, :mfa}
           ]
         ]
       ],
-      # For testing purposes
       test_pid: [type: :pid, doc: false],
       message_server: [type: {:or, [:pid, nil]}, doc: false]
     ]
