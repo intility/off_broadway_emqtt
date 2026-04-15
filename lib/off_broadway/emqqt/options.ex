@@ -186,6 +186,26 @@ defmodule OffBroadway.EMQTT.Options do
           custom_auth_callbacks: [
             doc: "A map of custom authentication callback MFAs for MQTT v5.",
             type: {:map, :atom, :mfa}
+          ],
+          reconnect: [
+            doc: """
+            Number of reconnect attempts after a disconnection (0 = no reconnect, :infinity = unlimited).
+            NOTE: emqtt reconnects the TCP connection but does NOT re-subscribe. You must set
+            `clean_start: false` so the broker restores the session and redelivers subscriptions.
+            Without `clean_start: false`, messages will silently stop arriving after a reconnect.
+            """,
+            type: {:or, [{:in, [:infinity]}, :non_neg_integer]},
+            required: false
+          ],
+          reconnect_timeout: [
+            doc: "Time in seconds to wait between reconnect attempts. Requires `reconnect` to be set.",
+            type: :pos_integer,
+            required: false
+          ],
+          low_mem: [
+            doc: "Enable low memory mode. Reduces memory usage at the cost of some performance.",
+            type: :boolean,
+            required: false
           ]
         ]
       ],

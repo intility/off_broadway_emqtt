@@ -33,7 +33,6 @@ defmodule OffBroadway.EMQTT.Connection do
       qos_value = normalize_qos(qos)
 
       case :emqtt.subscribe(conn, {full_topic, qos_value}) do
-        {:ok, _props} -> :ok
         {:ok, _props, _reason_codes} -> :ok
         {:error, reason} -> throw({:subscribe_error, topic, reason})
       end

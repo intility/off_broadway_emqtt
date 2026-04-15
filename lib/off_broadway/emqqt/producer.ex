@@ -24,6 +24,15 @@ defmodule OffBroadway.EMQTT.Producer do
   messages across producer instances. Without shared subscriptions, each producer
   would receive all messages (duplicates).
 
+  ## Reconnection
+
+  By default, if the MQTT connection is lost the producer stops and Broadway's supervisor
+  restarts it, which creates a fresh connection and re-subscribes to all topics.
+
+  You can instead configure emqtt's built-in reconnect via `config: [reconnect: :infinity, ...]`.
+  If you do this, you MUST also set `clean_start: false` - otherwise the broker discards the
+  session on reconnect and no messages will arrive after the reconnect completes.
+
   ## Telemetry
 
   This library exposes the following telemetry events:
