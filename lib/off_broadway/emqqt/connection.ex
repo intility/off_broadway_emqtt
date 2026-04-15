@@ -51,7 +51,7 @@ defmodule OffBroadway.EMQTT.Connection do
 
   @spec pubcomp(pid(), non_neg_integer()) :: :ok
   def pubcomp(conn, packet_id) do
-    :emqtt.pubrec(conn, packet_id)
+    :emqtt.pubcomp(conn, packet_id)
   end
 
   @spec disconnect(pid()) :: :ok
