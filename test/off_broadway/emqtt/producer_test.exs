@@ -167,7 +167,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         ArgumentError,
         ~r/required :host option not found/,
         fn ->
-          prepare_for_start_module_opts(config: [username: "rw"])
+          prepare_for_start_module_opts(topics: [{"test", 1}], config: [username: "rw"])
         end
       )
     end

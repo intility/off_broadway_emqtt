@@ -48,9 +48,9 @@ defmodule OffBroadway.EMQTT.Options do
         default: :noop
       ],
       topics: [
-        doc: "The topics to subscribe to",
+        doc: "List of `{topic, qos}` tuples to subscribe to. Use QoS 1 or 2 for reliable delivery.",
         type: {:list, {:tuple, [:string, {:custom, __MODULE__, :type_subopt, [[{:name, :name}]]}]}},
-        default: []
+        required: true
       ],
       message_handler: [
         doc: "A module that implements the `OffBroadway.EMQTT.MessageHandler` behaviour",
@@ -132,11 +132,13 @@ defmodule OffBroadway.EMQTT.Options do
           ],
           clean_start: [
             doc: """
-            Whether the server should discard any existing sessions.
-            Set to false for message durability - broker will resend unACKed QoS 1/2 messages on reconnect.
+            Whether the broker should discard any existing session on connect.
+            Defaults to false so the broker redelivers unACKed QoS 1/2 messages after a producer
+            restart. Set to true only if you explicitly want a fresh session each time and are
+            willing to lose in-flight messages on restart.
             """,
             type: :boolean,
-            default: true
+            default: false
           ],
           proto_ver: [
             doc: "The MQTT protocol version to use.",

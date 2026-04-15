@@ -5,6 +5,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
   describe "parse" do
     test "full config options" do
       opts = [
+        topics: [{"commands/#", :at_least_once}],
         config: [
           host: "test.mosquitto.org",
           port: 1883,
@@ -54,6 +55,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
 
     test ":emqtt basic authentication" do
       opts = [
+        topics: [{"commands/#", :at_least_once}],
         config: [
           host: "test.mosquitto.org",
           port: 1883,
@@ -67,6 +69,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
 
     test ":emqtt validation fails when host is missing" do
       opts = [
+        topics: [{"commands/#", :at_least_once}],
         config: [
           port: 1883,
           username: "rw",
