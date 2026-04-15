@@ -209,8 +209,6 @@ defmodule OffBroadway.EMQTT.Options do
           ]
         ]
       ],
-      test_pid: [type: :pid, doc: false],
-      message_server: [type: {:or, [:pid, nil]}, doc: false]
     ]
   end
 

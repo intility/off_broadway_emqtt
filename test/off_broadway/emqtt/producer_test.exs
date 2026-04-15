@@ -9,8 +9,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
                    password: "readwrite",
                    clientid: "producer-test"
                  ],
-                 max_inflight: 100,
-                 test_pid: self()
+                 max_inflight: 100
 
   require Logger
 
@@ -67,13 +66,13 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     )
   end
 
-  defp start_broadway(message_server, broadway_name, opts) do
+  defp start_broadway(_message_server, broadway_name, opts) do
     Broadway.start_link(
       Forwarder,
       broadway_opts(
         broadway_name,
         opts,
-        @broadway_opts ++ [message_server: message_server, topics: [{"test", :at_least_once}]]
+        @broadway_opts ++ [topics: [{"test", :at_least_once}]]
       )
     )
   end
@@ -114,6 +113,43 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
   defp unique_name(), do: :"Broadway#{System.unique_integer([:positive, :monotonic])}"
   defp random_alphastr(n), do: Enum.to_list(?a..?z) |> Enum.take_random(n) |> to_string()
+
+  describe "Acknowledger.build_ack_data/2" do
+    test "builds ack data map with qos, packet_id, topic and pid" do
+      msg = %{qos: 2, packet_id: 42, topic: "test/topic", payload: "hello"}
+      pid = self()
+
+      ack_data = OffBroadway.EMQTT.Acknowledger.build_ack_data(msg, pid)
+
+      assert ack_data.qos == 2
+      assert ack_data.packet_id == 42
+      assert ack_data.topic == "test/topic"
+      assert ack_data.emqtt_pid == pid
+    end
+
+    test "defaults qos to 0 when missing" do
+      ack_data = OffBroadway.EMQTT.Acknowledger.build_ack_data(%{topic: "t"}, self())
+      assert ack_data.qos == 0
+    end
+  end
+
+  describe "Connection QoS ack API" do
+    test "pubcomp/2 and puback/2 are exported" do
+      Code.ensure_loaded!(OffBroadway.EMQTT.Connection)
+      assert function_exported?(OffBroadway.EMQTT.Connection, :pubcomp, 2)
+      assert function_exported?(OffBroadway.EMQTT.Connection, :puback, 2)
+    end
+  end
+
+  describe "MessageHandler behaviour" do
+    test "only defines handle_message/3 callback" do
+      callbacks = OffBroadway.EMQTT.MessageHandler.behaviour_info(:callbacks)
+      assert {:handle_message, 3} in callbacks
+      refute {:handle_connect, 1} in callbacks
+      refute {:handle_disconnect, 1} in callbacks
+      refute {:handle_pubrel, 1} in callbacks
+    end
+  end
 
   describe "prepare_for_start/2 validation" do
     test "when :config is not present" do
