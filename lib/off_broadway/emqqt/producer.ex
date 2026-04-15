@@ -30,7 +30,7 @@ defmodule OffBroadway.EMQTT.Producer do
   restarts it, which creates a fresh connection and re-subscribes to all topics.
 
   You can instead configure emqtt's built-in reconnect via `config: [reconnect: :infinity, ...]`.
-  If you do this, you MUST also set `clean_start: false` - otherwise the broker discards the
+  If you do this, you MUST also set `clean_start: false`. Otherwise the broker discards the
   session on reconnect and no messages will arrive after the reconnect completes.
 
   ## Telemetry

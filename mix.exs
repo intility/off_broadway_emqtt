@@ -25,7 +25,7 @@ defmodule OffBroadway.EMQTT.MixProject do
         source_url: @source_url,
         extras: [
           "README.md",
-          "Changelog.md",
+          "CHANGELOG.md",
           "LICENSE"
         ]
       ],
@@ -55,7 +55,7 @@ defmodule OffBroadway.EMQTT.MixProject do
     [
       {:broadway, "~> 1.2"},
       {:emqtt, "~> 1.14"},
-      {:cowlib, "~> 2.13", override: true},
+      {:cowlib, "~> 2.13.0", override: true},
       {:ex_doc, "~> 0.38", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: :dev},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
