@@ -122,6 +122,12 @@ defmodule OffBroadway.EMQTT.Producer do
         end
 
       {:error, reason} ->
+        Logger.error(
+          "Failed to connect to MQTT broker " <>
+            "(#{inspect(Keyword.get(config, :host))}:#{Keyword.get(config, :port, 1883)}): " <>
+            "#{inspect(reason)}"
+        )
+
         {:stop, {:connection_failed, reason}}
     end
   end
@@ -211,6 +217,7 @@ defmodule OffBroadway.EMQTT.Producer do
       Connection.disconnect(state.emqtt_pid)
     end
 
+    :persistent_term.erase(state.broadway_name)
     :ok
   end
 

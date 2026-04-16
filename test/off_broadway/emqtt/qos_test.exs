@@ -98,5 +98,17 @@ defmodule OffBroadway.EMQTT.QoSTest do
       assert_receive {:message_handled, "hello-qos2", metadata}, 1000
       assert metadata.qos == 2
     end
+
+    test "message arrives exactly once" do
+      client_id = random_client_id()
+      {:ok, server} = MessageServer.start_link("server-#{client_id}")
+      {:ok, _broadway} = start_broadway(client_id, "qos2/once", :exactly_once)
+
+      Process.sleep(100)
+      MessageServer.push_messages(server, "qos2/once", ["once-only"], 2)
+
+      assert_receive {:message_handled, "once-only", _}, 1000
+      refute_receive {:message_handled, "once-only", _}, 500
+    end
   end
 end
