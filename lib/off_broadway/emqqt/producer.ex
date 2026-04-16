@@ -87,6 +87,7 @@ defmodule OffBroadway.EMQTT.Producer do
     emqtt_config =
       config
       |> Keyword.put(:max_inflight, max_inflight)
+      |> maybe_set_receive_maximum(max_inflight)
 
     case Connection.start_link(emqtt_config, producer_index) do
       {:ok, emqtt_pid} ->
@@ -257,6 +258,22 @@ defmodule OffBroadway.EMQTT.Producer do
   defp format_error(%ValidationError{keys_path: keys_path, message: message}) do
     "invalid configuration given to OffBroadway.EMQTT.Producer.prepare_for_start/2 for key #{inspect(keys_path)}, " <>
       message
+  end
+
+  # When using MQTT v5, set Receive-Maximum in the CONNECT properties so the broker
+  # enforces subscriber-side flow control. Without this, the broker sends messages
+  # as fast as it can regardless of how many are unACKed by the subscriber.
+  defp maybe_set_receive_maximum(config, max_inflight) do
+    proto_ver = Keyword.get(config, :proto_ver)
+    Logger.debug("maybe_set_receive_maximum: proto_ver=#{inspect(proto_ver)}, max_inflight=#{max_inflight}")
+    if proto_ver == :v5 do
+      existing_props = Keyword.get(config, :properties, %{})
+      updated_props = Map.put_new(existing_props, :"Receive-Maximum", max_inflight)
+      Logger.debug("Setting Receive-Maximum: #{inspect(updated_props)}")
+      Keyword.put(config, :properties, updated_props)
+    else
+      config
+    end
   end
 
   defp emit_telemetry(:up, metadata) do

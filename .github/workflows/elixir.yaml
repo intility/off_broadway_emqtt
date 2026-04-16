@@ -93,5 +93,11 @@ jobs:
       - run: mix compile --warnings-as-errors
         if: ${{ matrix.lint }}
 
-      - run: mix coveralls
+      - run: mix credo --strict
+        if: ${{ matrix.lint }}
+
+      - run: mix test --include requires_mqtt
+        if: ${{ !matrix.lint && !matrix.coverage }}
+
+      - run: mix coveralls --include requires_mqtt
         if: ${{ matrix.coverage }}

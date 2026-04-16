@@ -2,6 +2,8 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
+  alias OffBroadway.EMQTT.Test.MessageServer
+
   @broadway_opts config: [
                    host: "localhost",
                    port: 1884,
@@ -12,32 +14,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
                  max_inflight: 100
 
   require Logger
-
-  defmodule MessageServer do
-    def start_link do
-      with {:ok, pid} <-
-             :emqtt.start_link(
-               host: ~c"localhost",
-               port: 1884,
-               username: "rw",
-               password: "readwrite",
-               clientid: "message-server"
-             ),
-           {:ok, _} <- :emqtt.connect(pid) do
-        {:ok, pid}
-      end
-    end
-
-    def push_messages(server, topic, messages) do
-      for message <- messages, do: :emqtt.publish(server, topic, to_iodata(message))
-    end
-
-    def to_iodata(term) when is_binary(term), do: term
-    def to_iodata(term) when is_list(term), do: term
-    def to_iodata(term) when is_integer(term), do: Integer.to_string(term)
-    def to_iodata(term) when is_float(term), do: Float.to_string(term)
-    def to_iodata(term), do: :erlang.term_to_binary(term)
-  end
 
   defmodule Forwarder do
     use Broadway
@@ -271,6 +247,97 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       Broadway.stop(pid, :normal)
 
       stop_process(pid)
+    end
+
+    @tag :requires_mqtt
+    test "emits connection down telemetry when emqtt process dies" do
+      self = self()
+      client_id = random_alphastr(10)
+      broadway_name = unique_name()
+
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], client_id)
+
+      :telemetry.attach(
+        "#{client_id}-down",
+        [:off_broadway_emqtt, :connection, :down],
+        fn _name, _measurements, metadata, _ ->
+          send(self, {:connection_down, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("#{client_id}-down") end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name, broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          try do
+            Broadway.stop(pid, :normal)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
+
+      # Sleep briefly to allow the emqtt connection to establish before we inspect it.
+      # Process.sleep(200) is used instead of waiting for a telemetry :up event since
+      # that event is already covered by another test.
+      Process.sleep(200)
+
+      producer_pid = Broadway.producer_names(broadway_name) |> List.first() |> Process.whereis()
+
+      # NOTE: This traverses private internals of GenStage (:state) and Broadway
+      # (:module_state). May break on dependency upgrades.
+      %{state: %{module_state: %{emqtt_pid: emqtt_pid}}} = :sys.get_state(producer_pid)
+
+      Process.exit(emqtt_pid, :kill)
+
+      assert_receive {:connection_down, %{client_id: _, producer_index: 0}}, 1000
+    end
+
+    @tag :requires_mqtt
+    test "emits ack telemetry after successful message processing" do
+      self = self()
+      client_id = random_alphastr(10)
+
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], client_id)
+
+      :telemetry.attach(
+        "#{client_id}-ack",
+        [:off_broadway_emqtt, :receive_message, :ack],
+        fn _name, measurements, metadata, _ ->
+          send(self, {:ack_event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("#{client_id}-ack") end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"ack/telemetry/#{client_id}", :at_least_once}]])
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          try do
+            Broadway.stop(pid, :normal)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
+
+      # Sleep briefly to allow the emqtt connection and subscription to establish
+      # before publishing the test message.
+      Process.sleep(200)
+      MessageServer.push_messages(message_server, "ack/telemetry/#{client_id}", ["payload"], 1)
+
+      assert_receive {:ack_event, %{count: 1}, %{status: :on_success, qos: 1}}, 2000
     end
   end
 end

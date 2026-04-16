@@ -208,6 +208,14 @@ defmodule OffBroadway.EMQTT.Options do
             doc: "Enable low memory mode. Reduces memory usage at the cost of some performance.",
             type: :boolean,
             required: false
+          ],
+          properties: [
+            doc: """
+            MQTT properties to include in the CONNECT packet (MQTT v5 only).
+            Keys must be atoms matching MQTT property names, e.g. `%{"Receive-Maximum": 2}`.
+            """,
+            type: :map,
+            required: false
           ]
         ]
       ],
