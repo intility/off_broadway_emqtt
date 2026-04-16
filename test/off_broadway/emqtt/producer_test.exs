@@ -2,6 +2,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
+  alias OffBroadway.EMQTT.{Acknowledger, Connection, MessageHandler, Producer}
   alias OffBroadway.EMQTT.Test.MessageServer
 
   @broadway_opts config: [
@@ -33,9 +34,11 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   end
 
   defmodule CustomHandler do
-    @behaviour OffBroadway.EMQTT.MessageHandler
+    alias OffBroadway.EMQTT.{Acknowledger, MessageHandler}
 
-    @impl OffBroadway.EMQTT.MessageHandler
+    @behaviour MessageHandler
+
+    @impl MessageHandler
     def handle_message(message, ack_ref, _opts) do
       message = Map.drop(message, [:via, :client_pid])
       {payload, metadata} = Map.pop(message, :payload)
@@ -43,16 +46,16 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       %Broadway.Message{
         data: payload,
         metadata: Map.put(metadata, :custom, true),
-        acknowledger: {OffBroadway.EMQTT.Acknowledger, ack_ref, %{}}
+        acknowledger: {Acknowledger, ack_ref, %{}}
       }
     end
   end
 
   defp prepare_for_start_module_opts(module_opts) do
-    OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
+    Producer.prepare_for_start(Forwarder,
       name: :test_broadway,
       producer: [
-        module: {OffBroadway.EMQTT.Producer, module_opts},
+        module: {Producer, module_opts},
         concurrency: 1
       ]
     )
@@ -86,7 +89,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       name: broadway_name,
       context: %{test_pid: self()},
       producer: [
-        module: {OffBroadway.EMQTT.Producer, Keyword.merge(producer_opts, opts)},
+        module: {Producer, Keyword.merge(producer_opts, opts)},
         rate_limiting: [allowed_messages: 1000, interval: 1000],
         concurrency: 1
       ],
@@ -103,7 +106,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     ]
   end
 
-  defp unique_name(), do: :"Broadway#{System.unique_integer([:positive, :monotonic])}"
+  defp unique_name, do: :"Broadway#{System.unique_integer([:positive, :monotonic])}"
   defp random_alphastr(n), do: Enum.to_list(?a..?z) |> Enum.take_random(n) |> to_string()
 
   describe "Acknowledger.build_ack_data/2" do
@@ -111,7 +114,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       msg = %{qos: 2, packet_id: 42, topic: "test/topic", payload: "hello"}
       pid = self()
 
-      ack_data = OffBroadway.EMQTT.Acknowledger.build_ack_data(msg, pid)
+      ack_data = Acknowledger.build_ack_data(msg, pid)
 
       assert ack_data.qos == 2
       assert ack_data.packet_id == 42
@@ -120,22 +123,22 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     end
 
     test "defaults qos to 0 when missing" do
-      ack_data = OffBroadway.EMQTT.Acknowledger.build_ack_data(%{topic: "t"}, self())
+      ack_data = Acknowledger.build_ack_data(%{topic: "t"}, self())
       assert ack_data.qos == 0
     end
   end
 
   describe "Connection QoS ack API" do
     test "pubcomp/2 and puback/2 are exported" do
-      Code.ensure_loaded!(OffBroadway.EMQTT.Connection)
-      assert function_exported?(OffBroadway.EMQTT.Connection, :pubcomp, 2)
-      assert function_exported?(OffBroadway.EMQTT.Connection, :puback, 2)
+      Code.ensure_loaded!(Connection)
+      assert function_exported?(Connection, :pubcomp, 2)
+      assert function_exported?(Connection, :puback, 2)
     end
   end
 
   describe "MessageHandler behaviour" do
     test "only defines handle_message/3 callback" do
-      callbacks = OffBroadway.EMQTT.MessageHandler.behaviour_info(:callbacks)
+      callbacks = MessageHandler.behaviour_info(:callbacks)
       assert {:handle_message, 3} in callbacks
       refute {:handle_connect, 1} in callbacks
       refute {:handle_disconnect, 1} in callbacks
@@ -179,10 +182,10 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         ArgumentError,
         ~r/shared_group is required when using concurrency > 1/,
         fn ->
-          OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
+          Producer.prepare_for_start(Forwarder,
             name: :test_broadway,
             producer: [
-              module: {OffBroadway.EMQTT.Producer, @broadway_opts ++ [topics: [{"test", 1}]]},
+              module: {Producer, @broadway_opts ++ [topics: [{"test", 1}]]},
               concurrency: 2
             ]
           )
@@ -192,11 +195,11 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
     test "concurrency > 1 with shared_group succeeds" do
       {children, _opts} =
-        OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
+        Producer.prepare_for_start(Forwarder,
           name: :test_broadway,
           producer: [
             module:
-              {OffBroadway.EMQTT.Producer,
+              {Producer,
                @broadway_opts ++ [topics: [{"test", 1}], shared_group: "my_group"]},
             concurrency: 2
           ]
@@ -223,7 +226,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
                   context: %{test_pid: test_pid},
                   producer: [
                     module:
-                      {OffBroadway.EMQTT.Producer,
+                      {Producer,
                        topics: [{"test", :at_least_once}],
                        config: [host: "localhost", port: 9999, clientid: "unreachable-test"]},
                     concurrency: 1

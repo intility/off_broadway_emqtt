@@ -14,11 +14,11 @@ defmodule OffBroadway.EMQTT.MessageHandler do
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour OffBroadway.EMQTT.MessageHandler
+      @behaviour unquote(__MODULE__)
 
-      @impl OffBroadway.EMQTT.MessageHandler
+      @impl unquote(__MODULE__)
       def handle_message(message, broadway, opts),
-        do: OffBroadway.EMQTT.MessageHandler.handle_message(message, broadway, opts)
+        do: unquote(__MODULE__).handle_message(message, broadway, opts)
 
       defoverridable handle_message: 3
     end

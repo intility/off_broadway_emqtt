@@ -58,8 +58,8 @@ defmodule OffBroadway.EMQTT.Producer do
   require Logger
 
   alias Broadway.Producer
-  alias OffBroadway.EMQTT.{Connection, Acknowledger}
   alias NimbleOptions.ValidationError
+  alias OffBroadway.EMQTT.{Acknowledger, Connection, Options}
 
   @behaviour Producer
 
@@ -136,7 +136,7 @@ defmodule OffBroadway.EMQTT.Producer do
   def prepare_for_start(_module, broadway_opts) do
     {producer_module, client_opts} = broadway_opts[:producer][:module]
 
-    case NimbleOptions.validate(client_opts, OffBroadway.EMQTT.Options.definition()) do
+    case NimbleOptions.validate(client_opts, Options.definition()) do
       {:ok, opts} ->
         broadway_name = Keyword.fetch!(broadway_opts, :name)
         concurrency = get_in(broadway_opts, [:producer, :concurrency]) || 1

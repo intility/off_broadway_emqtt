@@ -28,6 +28,12 @@ that correctly participates in QoS 1/2 guarantees.
 - **`concurrency > 1` requires `shared_group`.** Starting a pipeline with multiple
   producer instances and no `shared_group` now raises at startup. Without shared
   subscriptions every producer receives every message, causing duplicates.
+- **Client ID suffix `_N` is now always appended.** Each producer instance connects
+  with `{clientid}_0`, `{clientid}_1`, etc. A pipeline that previously connected as
+  `my-client` now connects as `my-client_0`. If you have a persistent broker session
+  keyed by the exact client ID, update the `clientid` in your config to match the new
+  suffix (e.g. `clientid: "my-client_0"`) or accept that the session will be treated
+  as new on first connect.
 - **emqtt bumped to `~> 1.14`**, cowlib to `~> 2.13.0`.
 
 ### Bug fixes
