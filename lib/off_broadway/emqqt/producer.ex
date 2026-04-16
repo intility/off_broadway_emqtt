@@ -81,7 +81,7 @@ defmodule OffBroadway.EMQTT.Producer do
     Process.flag(:trap_exit, true)
 
     config = opts[:config]
-    producer_index = opts[:producer_index] || 0
+    producer_index = get_in(opts, [:broadway, :index]) || 0
     max_inflight = opts[:max_inflight] || 100
 
     emqtt_config =
@@ -271,12 +271,9 @@ defmodule OffBroadway.EMQTT.Producer do
   # enforces subscriber-side flow control. Without this, the broker sends messages
   # as fast as it can regardless of how many are unACKed by the subscriber.
   defp maybe_set_receive_maximum(config, max_inflight) do
-    proto_ver = Keyword.get(config, :proto_ver)
-    Logger.debug("maybe_set_receive_maximum: proto_ver=#{inspect(proto_ver)}, max_inflight=#{max_inflight}")
-    if proto_ver == :v5 do
+    if Keyword.get(config, :proto_ver) == :v5 do
       existing_props = Keyword.get(config, :properties, %{})
       updated_props = Map.put_new(existing_props, :"Receive-Maximum", max_inflight)
-      Logger.debug("Setting Receive-Maximum: #{inspect(updated_props)}")
       Keyword.put(config, :properties, updated_props)
     else
       config

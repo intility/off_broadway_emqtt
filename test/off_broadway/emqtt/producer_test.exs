@@ -164,6 +164,16 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       )
     end
 
+    test "when topics is an empty list" do
+      assert_raise(
+        ArgumentError,
+        ~r/must not be empty/,
+        fn ->
+          prepare_for_start_module_opts(topics: [], config: [host: "localhost"])
+        end
+      )
+    end
+
     test "when concurrency > 1 without shared_group" do
       assert_raise(
         ArgumentError,

@@ -49,7 +49,7 @@ defmodule OffBroadway.EMQTT.Options do
       ],
       topics: [
         doc: "List of `{topic, qos}` tuples to subscribe to. Use QoS 1 or 2 for reliable delivery.",
-        type: {:list, {:tuple, [:string, {:custom, __MODULE__, :type_subopt, [[{:name, :name}]]}]}},
+        type: {:custom, __MODULE__, :type_topics, []},
         required: true
       ],
       message_handler: [
@@ -221,6 +221,28 @@ defmodule OffBroadway.EMQTT.Options do
       ],
     ]
   end
+
+  def type_topics(value, opts \\ [])
+
+  def type_topics([], _opts), do: {:error, "must not be empty"}
+
+  def type_topics(topics, _opts) when is_list(topics) do
+    topics
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, topics}, fn
+      {{topic, qos}, _i}, acc when is_binary(topic) ->
+        case type_subopt(qos, [{:name, :qos}]) do
+          {:ok, _} -> {:cont, acc}
+          {:error, reason} -> {:halt, {:error, "invalid qos in topic #{inspect(topic)}: #{reason}"}}
+        end
+
+      {item, i}, _acc ->
+        {:halt, {:error, "expected {topic, qos} tuple at index #{i}, got: #{inspect(item)}"}}
+    end)
+  end
+
+  def type_topics(value, _opts),
+    do: {:error, "expected a list of {topic, qos} tuples, got: #{inspect(value)}"}
 
   def type_subopt(value, [{:name, _}]) when value in @qos, do: {:ok, value}
   def type_subopt({:rh, qos} = value, [{:name, _}]) when qos in [0, 1, 2], do: {:ok, value}

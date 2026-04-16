@@ -1,1 +1,1 @@
-ExUnit.start()
+ExUnit.start(exclude: [:requires_mqtt])

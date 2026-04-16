@@ -7,87 +7,178 @@
 
 An MQTT connector based on [emqtt](https://github.com/emqx/emqtt) for [Broadway](https://github.com/dashbitco/broadway).
 
-MQTT (Message Queuing Telemetry Transport) is a lightweight messaging protocol designed for small sensors and mobile devices 
-with limited bandwidth. MQTT is commonly used in IoT (Internet of Things), home and industrial automation, healthcare and energy management
-amongst others.
+MQTT is a lightweight publish/subscribe protocol widely used in IoT, industrial automation, and telemetry.
+This library connects a Broadway pipeline to an MQTT broker, using the MQTT protocol itself for
+backpressure and message reliability rather than an in-process buffer.
 
-Several well-known systems and cloud providers provides MQTT broker services that can be used to build automation systems. These includes
-Amazon Web Services (AWS IoT), Microsoft Azure (IoT Hub, Event Grid), IBM Watson IoT Platform and Eclipse Mosquitto.
+## Installation
+
+```elixir
+def deps do
+  [
+    {:off_broadway_emqtt, "~> 0.3.0"}
+  ]
+end
+```
+
+By default, `:emqtt` compiles the Quic transport library. To build without it:
+
+```shell
+BUILD_WITHOUT_QUIC=1 mix deps.compile
+```
 
 ## Usage
 
-``` elixir
-defmodule MyBroadway do 
+```elixir
+defmodule MyBroadway do
   use Broadway
-  alias Broadway.Message
-  
-  def start_link(_opts) do 
+
+  def start_link(_opts) do
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
-        module: {OffBroadway.EMQTT.Producer, 
-           topics: [
-             {"test/topic1", :at_most_once},     # QoS 0
-             {"test/topic2", :at_least_once},    # QoS 1
-             {"test/topic3", :exactly_once}      # QoS 2
-           ],
-           buffer_size: 10_000,                  # Max number of messages in ETS cache before beginning to drop messages
-           buffer_overflow_strategy: :drop_head, # Either :drop_head or :reject
-           buffer_durability: :durable,          # Persist cached messages to disk (:durable) or in-memory only (:transient)
-           buffer_log_dir: System.tmp_dir!(),    # Where to store buffer logs if using :durable buffer
-           config: [
-             host: "test.mosquitto.org",
-             port: 1884,
-             username: "rw",
-             password: "readwrite"
-           ]
+        module: {OffBroadway.EMQTT.Producer,
+          topics: [
+            {"sensors/status",      :at_most_once},    # QoS 0
+            {"sensors/temperature", :at_least_once},   # QoS 1
+            {"sensors/humidity",    :exactly_once}     # QoS 2
+          ],
+          max_inflight: 100,
+          config: [
+            host: "mqtt.example.com",
+            port: 1883,
+            username: "my-user",
+            password: "my-password",
+            clientid: "my-pipeline"
+          ]
         },
-        concurrency: 5
+        concurrency: 1
       ],
-      processors: [
-        default: [concurrency: 10]
-      ],
-      batchers: [
-        default: [
-          batch_size: 200,
-          concurrency: 5 
-        ]
-      ]
+      processors: [default: [concurrency: 10]],
+      batchers: [default: [batch_size: 100, batch_timeout: 500, concurrency: 5]]
     )
   end
-  
+
   @impl true
-  def handle_message(_, %Message{} = message, _) do 
-    IO.inspect(message, label: "Handled message from producer")
+  def handle_message(_, message, _context) do
+    IO.inspect(message.data, label: "payload")
+    IO.inspect(message.metadata.topic, label: "topic")
+    message
   end
-  
+
   @impl true
-  def handle_batch(_, messages, _, _) do 
-    IO.inspect("Received a batch of #{length(messages)} messages", label: "Handled batch from producer")
+  def handle_batch(_, messages, _, _) do
     messages
   end
 end
 ```
 
+Each MQTT message is delivered as a Broadway message where `data` is the raw payload binary
+and `metadata` contains the remaining fields from the MQTT packet (`topic`, `qos`, `packet_id`, etc.).
 
-## Installation
+## Reliability and message delivery
 
-This package is [available in Hex](https://hex.pm/packages/off_broadway_emqtt), and can be installed
-by adding `off_broadway_emqtt` to your list of dependencies in `mix.exs`:
+### QoS levels
+
+Use QoS 1 (`:at_least_once`) or QoS 2 (`:exactly_once`) for reliable delivery. Messages are only
+acknowledged to the broker after Broadway successfully processes them. If Broadway fails to process
+a message, the broker redelivers it (with QoS 1/2).
+
+QoS 0 (`:at_most_once`) provides no delivery guarantee. The broker fires and forgets.
+
+### Backpressure via max_inflight
+
+The `max_inflight` option limits how many unACKed QoS 1/2 messages the broker will send before
+waiting for acknowledgements. This is the primary backpressure mechanism: the broker stops
+delivering new messages once the window is full.
+
+For MQTT v5 (`config: [proto_ver: :v5]`), `Receive-Maximum` is set automatically in the CONNECT
+properties so the broker enforces the limit server-side.
+
+### Session persistence across restarts
+
+`clean_start` defaults to `false`. When a producer restarts (after a crash or deployment), the
+broker recognises the `clientid` and redelivers any QoS 1/2 messages that were not acknowledged
+before the restart. No messages are lost between restarts.
+
+If you want a fresh session on every connect (discarding unACKed messages), set
+`config: [clean_start: true]` explicitly.
+
+### on_success and on_failure
+
+| Option | Value | Behaviour |
+|---|---|---|
+| `on_success` | `:ack` (default) | ACKs the message to the broker after successful processing |
+| `on_success` | `:noop` | Does not ACK; broker will redeliver |
+| `on_failure` | `:noop` (default) | Does not ACK; broker will redeliver (QoS 1/2) |
+| `on_failure` | `:ack` | ACKs even on failure; message is not redelivered |
+
+## Multiple consumers (concurrency)
+
+To distribute messages across multiple producer instances, set `concurrency > 1` and provide a
+`shared_group` name. Without `shared_group`, every producer instance receives every message,
+causing duplicates.
 
 ```elixir
-def deps do
-  [
-    {:off_broadway_emqtt, "~> 0.2.0"}, 
-    {:cowlib, "~> 2.12", override: true} # Required for `:emqtt` dependency resolution
-  ]
+producer: [
+  module: {OffBroadway.EMQTT.Producer,
+    topics: [{"work/queue", :at_least_once}],
+    shared_group: "my-pipeline",
+    config: [host: "mqtt.example.com", clientid: "worker"]
+  },
+  concurrency: 3
+]
+```
+
+This creates three MQTT connections (`worker_0`, `worker_1`, `worker_2`) all in the shared group
+`my-pipeline`. The broker distributes messages across them using MQTT shared subscriptions
+(`$share/my-pipeline/work/queue`).
+
+`max_inflight` applies per connection. With `concurrency: 3` and `max_inflight: 100`, up to 300
+unACKed messages can be in-flight across the pipeline at once.
+
+## Custom message handler
+
+Implement `OffBroadway.EMQTT.MessageHandler` to customise how MQTT messages are converted to
+Broadway messages. The default handler places the raw payload binary in `data` and the rest of
+the MQTT packet fields in `metadata`.
+
+```elixir
+defmodule MyApp.JsonHandler do
+  @behaviour OffBroadway.EMQTT.MessageHandler
+
+  @impl true
+  def handle_message(message, ack_ref, _opts) do
+    {payload, metadata} = Map.pop(message, :payload)
+
+    %Broadway.Message{
+      data: Jason.decode!(payload),
+      metadata: metadata,
+      acknowledger: {OffBroadway.EMQTT.Acknowledger, ack_ref, %{}}
+    }
+  end
 end
 ```
 
-By default, `:emqtt` compiles the `Quic` library. It is possible to build without by setting the environment variable
-`BUILD_WITHOUT_QUIC=1`.
-
-``` shell
-BUILD_WITHOUT_QUIC=1 mix deps.compile
+```elixir
+producer: [
+  module: {OffBroadway.EMQTT.Producer,
+    topics: [{"events/#", :at_least_once}],
+    message_handler: MyApp.JsonHandler,
+    config: [host: "mqtt.example.com"]
+  },
+  concurrency: 1
+]
 ```
 
+## Telemetry
+
+| Event | Measurements | Metadata |
+|---|---|---|
+| `[:off_broadway_emqtt, :connection, :up]` | `%{time: integer}` | `%{client_id: string, producer_index: integer}` |
+| `[:off_broadway_emqtt, :connection, :down]` | `%{time: integer}` | `%{client_id: string, producer_index: integer, reason: term}` |
+| `[:off_broadway_emqtt, :receive_message, :ack]` | `%{time: integer, count: 1}` | `%{topic: string, qos: integer, status: :on_success \| :on_failure}` |
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for upgrade instructions and release history.
