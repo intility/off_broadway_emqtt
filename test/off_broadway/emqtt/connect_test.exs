@@ -21,6 +21,8 @@ defmodule OffBroadway.EMQTT.ConnectTest do
   @opts_8884 @host ++ [ssl: true, ssl_opts: @ssl_opts ++ @client_cert, port: 8884]
   @opts_8885 @host ++ @credentials ++ [ssl: true, ssl_opts: @ssl_opts, port: 8885]
 
+  @moduletag :requires_mqtt
+
   describe "connecting to local Mosquitto" do
     test "at port 1883 without authentication" do
       {:ok, pid} = :emqtt.start_link(@opts_1883)

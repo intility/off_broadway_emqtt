@@ -1,7 +1,7 @@
 defmodule OffBroadway.EMQTT.MixProject do
   use Mix.Project
 
-  @version "0.2.1"
+  @version "0.3.0"
   @description "An MQTT connector based on emqtt for Broadway."
   @source_url "https://github.com/Intility/off_broadway_emqtt"
 
@@ -25,7 +25,7 @@ defmodule OffBroadway.EMQTT.MixProject do
         source_url: @source_url,
         extras: [
           "README.md",
-          "Changelog.md",
+          "CHANGELOG.md",
           "LICENSE"
         ]
       ],
@@ -54,11 +54,10 @@ defmodule OffBroadway.EMQTT.MixProject do
   defp deps do
     [
       {:broadway, "~> 1.2"},
-      {:emqtt, "~> 1.11"},
-      {:cowlib, "~> 2.12", only: :dev, override: true},
-      {:ex_doc, "~> 0.38", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", only: :dev},
-      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
+      {:emqtt, "~> 1.14"},
+      {:ex_doc, "~> 0.40", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test]},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test}
     ]
   end

@@ -15,30 +15,42 @@ defmodule OffBroadway.EMQTT.Options do
 
   def definition do
     [
-      buffer_size: [
-        doc: "The maximum number of messages that can be buffered",
+      shared_group: [
+        doc: """
+        Shared subscription group name. When set, topics are subscribed as
+        `$share/{group}/{topic}` which distributes messages across all producer
+        instances. Required when using concurrency > 1.
+        """,
+        type: :string,
+        required: false
+      ],
+      max_inflight: [
+        doc: """
+        Maximum unACKed QoS 1/2 messages per producer. This is the primary
+        backpressure mechanism - the broker will not send more messages until
+        existing ones are acknowledged.
+        """,
         type: :pos_integer,
-        default: 10_000
+        default: 100
       ],
-      buffer_overflow_strategy: [
-        doc: "The strategy to use when the buffer is full",
-        type: {:in, [:reject, :drop_head]},
-        default: :reject
+      on_success: [
+        doc: "Action when Broadway message succeeds. :ack sends PUBACK to broker.",
+        type: {:in, [:ack, :noop]},
+        default: :ack
       ],
-      buffer_durability: [
-        doc: "Set to `:durable` to write buffer log to disk, or `:transient` to keep it in memory",
-        type: {:in, [:durable, :transient]},
-        default: :transient
-      ],
-      buffer_log_dir: [
-        doc: "A string or zero-arity function that returns the directory to store the buffer log",
-        type: {:or, [{:fun, 0}, :string]},
-        default: &System.tmp_dir/0
+      on_failure: [
+        doc: """
+        Action when Broadway message fails.
+        - :noop - don't ACK, broker will redeliver after timeout (for QoS 1/2)
+        - :ack - ACK anyway, message won't be redelivered
+        """,
+        type: {:in, [:ack, :noop]},
+        default: :noop
       ],
       topics: [
-        doc: "The topics to subscribe to",
-        type: {:list, {:tuple, [:string, {:custom, __MODULE__, :type_subopt, [[{:name, :name}]]}]}},
-        default: []
+        doc: "List of `{topic, qos}` tuples to subscribe to. Use QoS 1 or 2 for reliable delivery.",
+        type: {:custom, __MODULE__, :type_topics, []},
+        required: true
       ],
       message_handler: [
         doc: "A module that implements the `OffBroadway.EMQTT.MessageHandler` behaviour",
@@ -114,14 +126,19 @@ defmodule OffBroadway.EMQTT.Options do
             default: false
           ],
           clientid: [
-            doc: "Specify the client identifier.",
+            doc: "Specify the client identifier. Each producer will append '_N' where N is the producer index.",
             type: :string,
             default: :emqtt.random_client_id()
           ],
           clean_start: [
-            doc: "Whether the server should discard any existing sessions and start a new one.",
+            doc: """
+            Whether the broker should discard any existing session on connect.
+            Defaults to false so the broker redelivers unACKed QoS 1/2 messages after a producer
+            restart. Set to true only if you explicitly want a fresh session each time and are
+            willing to lose in-flight messages on restart.
+            """,
             type: :boolean,
-            default: true
+            default: false
           ],
           proto_ver: [
             doc: "The MQTT protocol version to use.",
@@ -131,53 +148,32 @@ defmodule OffBroadway.EMQTT.Options do
           keepalive: [
             doc: """
             The maximum time interval in seconds that is permitted to elapse between the client
-            finishes transmitting one MQTT Control Packet and starts sending the next. Will be
-            replaced by server `keepalive` from MQTT server.
+            finishes transmitting one MQTT Control Packet and starts sending the next.
             """,
             type: :pos_integer
           ],
-          max_inflight: [
-            doc: """
-            The maximum number of QoS 1 and QoS 2 packets in flight. This means the number of packets
-            that have been sent, but not yet acked. Will be replaced by server `Receive-Maximum` property
-            in a `CONNACK` package. In that case, the lesser of the two values will act as the limit.
-            """,
-            type: {:or, [:pos_integer, {:in, [:infinity]}]},
-            default: :infinity
-          ],
           retry_interval: [
-            doc: """
-            Interval in seconds to retry sending packets that have been sent but not received
-            a response.
-            """,
+            doc: "Interval in seconds to retry sending packets that have not received a response.",
             type: :pos_integer,
             default: 30
           ],
           will_topic: [
-            doc: """
-            Topic of `will` message, a predefined message that the client sets to be sent by the
-            server in case of an unexpected disconnects.
-            """,
+            doc: "Topic of will message, sent by broker on unexpected disconnect.",
             type: :string
           ],
           will_payload: [
-            doc: "The payload of the `will` message.",
+            doc: "The payload of the will message.",
             type: :string
           ],
           will_retain: [
-            doc: "Whether the `will` message should be published as a retained message.",
+            doc: "Whether the will message should be published as retained.",
             type: :boolean,
             default: false
           ],
           will_qos: [
-            doc: "The QoS level of the `will` message.",
+            doc: "The QoS level of the will message.",
             type: {:in, [0, 1, 2]},
             default: 0
-          ],
-          auto_ack: [
-            doc: "The client process will automacally send ack packages like `PUBACK` when receiving a packet.",
-            type: :boolean,
-            default: true
           ],
           ack_timeout: [
             doc: "The timeout in seconds for the ack package.",
@@ -185,27 +181,68 @@ defmodule OffBroadway.EMQTT.Options do
             default: 30
           ],
           force_ping: [
-            doc: """
-            If false and any other packets are sent during the `keepalive` interval, the ping packet will
-            not be sent this time. If true, the ping packet will be sent regardless of other packets.
-            """,
+            doc: "If true, ping is sent regardless of other packet activity.",
             type: :boolean,
             default: false
           ],
           custom_auth_callbacks: [
-            doc: """
-            A map of custom authentication callback MFAs. This configuration enables enhanced authentication
-            mechanisms in MQTT v5.
-            """,
+            doc: "A map of custom authentication callback MFAs for MQTT v5.",
             type: {:map, :atom, :mfa}
+          ],
+          reconnect: [
+            doc: """
+            Number of reconnect attempts after a disconnection (0 = no reconnect, :infinity = unlimited).
+            NOTE: emqtt reconnects the TCP connection but does NOT re-subscribe. You must set
+            `clean_start: false` so the broker restores the session and redelivers subscriptions.
+            Without `clean_start: false`, messages will silently stop arriving after a reconnect.
+            """,
+            type: {:or, [{:in, [:infinity]}, :non_neg_integer]},
+            required: false
+          ],
+          reconnect_timeout: [
+            doc: "Time in seconds to wait between reconnect attempts. Requires `reconnect` to be set.",
+            type: :pos_integer,
+            required: false
+          ],
+          low_mem: [
+            doc: "Enable low memory mode. Reduces memory usage at the cost of some performance.",
+            type: :boolean,
+            required: false
+          ],
+          properties: [
+            doc: """
+            MQTT properties to include in the CONNECT packet (MQTT v5 only).
+            Keys must be atoms matching MQTT property names, e.g. `%{:"Receive-Maximum" => 2}`.
+            """,
+            type: :map,
+            required: false
           ]
         ]
-      ],
-      # For testing purposes
-      test_pid: [type: :pid, doc: false],
-      message_server: [type: {:or, [:pid, nil]}, doc: false]
+      ]
     ]
   end
+
+  def type_topics(value, opts \\ [])
+
+  def type_topics([], _opts), do: {:error, "must not be empty"}
+
+  def type_topics(topics, _opts) when is_list(topics) do
+    topics
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, topics}, fn
+      {{topic, qos}, _i}, acc when is_binary(topic) ->
+        case type_subopt(qos, [{:name, :qos}]) do
+          {:ok, _} -> {:cont, acc}
+          {:error, reason} -> {:halt, {:error, "invalid qos in topic #{inspect(topic)}: #{reason}"}}
+        end
+
+      {item, i}, _acc ->
+        {:halt, {:error, "expected {topic, qos} tuple at index #{i}, got: #{inspect(item)}"}}
+    end)
+  end
+
+  def type_topics(value, _opts),
+    do: {:error, "expected a list of {topic, qos} tuples, got: #{inspect(value)}"}
 
   def type_subopt(value, [{:name, _}]) when value in @qos, do: {:ok, value}
   def type_subopt({:rh, qos} = value, [{:name, _}]) when qos in [0, 1, 2], do: {:ok, value}

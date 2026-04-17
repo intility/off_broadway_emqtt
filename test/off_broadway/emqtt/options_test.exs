@@ -5,6 +5,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
   describe "parse" do
     test "full config options" do
       opts = [
+        topics: [{"commands/#", :at_least_once}],
         config: [
           host: "test.mosquitto.org",
           port: 1883,
@@ -19,9 +20,10 @@ defmodule OffBroadway.EMQTT.OptionsTest do
             keyfile: "client.key"
           ]
         ],
-        buffer_size: 1000,
-        buffer_overflow_strategy: :reject,
-        buffer_durability: :durable
+        shared_group: "test_group",
+        max_inflight: 200,
+        on_success: :ack,
+        on_failure: :noop
       ]
 
       assert {:ok, _} = NimbleOptions.validate(opts, Options.definition())
@@ -53,6 +55,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
 
     test ":emqtt basic authentication" do
       opts = [
+        topics: [{"commands/#", :at_least_once}],
         config: [
           host: "test.mosquitto.org",
           port: 1883,
@@ -66,6 +69,7 @@ defmodule OffBroadway.EMQTT.OptionsTest do
 
     test ":emqtt validation fails when host is missing" do
       opts = [
+        topics: [{"commands/#", :at_least_once}],
         config: [
           port: 1883,
           username: "rw",

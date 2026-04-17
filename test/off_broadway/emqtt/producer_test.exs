@@ -2,44 +2,19 @@ defmodule OffBroadway.EMQTT.ProducerTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
-  @broadway_opts buffer_size: 10_000,
-                 buffer_overflow_strategy: :drop_head,
-                 config: [
+  alias OffBroadway.EMQTT.{Acknowledger, Connection, MessageHandler, Producer}
+  alias OffBroadway.EMQTT.Test.MessageServer
+
+  @broadway_opts config: [
                    host: "localhost",
                    port: 1884,
                    username: "rw",
                    password: "readwrite",
                    clientid: "producer-test"
                  ],
-                 test_pid: self()
+                 max_inflight: 100
 
   require Logger
-
-  defmodule MessageServer do
-    def start_link do
-      with {:ok, pid} <-
-             :emqtt.start_link(
-               host: ~c"localhost",
-               port: 1884,
-               username: "rw",
-               password: "readwrite",
-               clientid: "message-server"
-             ),
-           {:ok, _} <- :emqtt.connect(pid) do
-        {:ok, pid}
-      end
-    end
-
-    def push_messages(server, topic, messages) do
-      for message <- messages, do: :emqtt.publish(server, topic, to_iodata(message))
-    end
-
-    def to_iodata(term) when is_binary(term), do: term
-    def to_iodata(term) when is_list(term), do: term
-    def to_iodata(term) when is_integer(term), do: Integer.to_string(term)
-    def to_iodata(term) when is_float(term), do: Float.to_string(term)
-    def to_iodata(term), do: :erlang.term_to_binary(term)
-  end
 
   defmodule Forwarder do
     use Broadway
@@ -58,22 +33,41 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     end
   end
 
+  defmodule CustomHandler do
+    alias OffBroadway.EMQTT.{Acknowledger, MessageHandler}
+
+    @behaviour MessageHandler
+
+    @impl MessageHandler
+    def handle_message(message, ack_ref, _opts) do
+      message = Map.drop(message, [:via, :client_pid])
+      {payload, metadata} = Map.pop(message, :payload)
+
+      %Broadway.Message{
+        data: payload,
+        metadata: Map.put(metadata, :custom, true),
+        acknowledger: {Acknowledger, ack_ref, %{}}
+      }
+    end
+  end
+
   defp prepare_for_start_module_opts(module_opts) do
-    OffBroadway.EMQTT.Producer.prepare_for_start(Forwarder,
+    Producer.prepare_for_start(Forwarder,
+      name: :test_broadway,
       producer: [
-        module: {OffBroadway.EMQTT.Producer, module_opts},
-        concurrency: 2
+        module: {Producer, module_opts},
+        concurrency: 1
       ]
     )
   end
 
-  defp start_broadway(message_server, broadway_name, opts) do
+  defp start_broadway(broadway_name, opts) do
     Broadway.start_link(
       Forwarder,
       broadway_opts(
         broadway_name,
         opts,
-        @broadway_opts ++ [message_server: message_server, topics: [{"test", :at_least_once}]]
+        @broadway_opts ++ [topics: [{"test", :at_least_once}]]
       )
     )
   end
@@ -82,10 +76,11 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     ref = Process.monitor(pid)
     Process.exit(pid, :normal)
 
-    # Capture EXIT or any in-flight messages
     receive do
       {:DOWN, ^ref, _, _, _} -> :ok
       {:message_handled, _, _} -> :ok
+    after
+      1000 -> :ok
     end
   end
 
@@ -94,25 +89,62 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       name: broadway_name,
       context: %{test_pid: self()},
       producer: [
-        module: {OffBroadway.EMQTT.Producer, Keyword.merge(producer_opts, opts)},
+        module: {Producer, Keyword.merge(producer_opts, opts)},
         rate_limiting: [allowed_messages: 1000, interval: 1000],
-        concurrency: 10
+        concurrency: 1
       ],
       processors: [
-        default: [concurrency: 20]
+        default: [concurrency: 10]
       ],
       batchers: [
         default: [
           batch_size: 100,
           batch_timeout: 50,
-          concurrency: 10
+          concurrency: 5
         ]
       ]
     ]
   end
 
-  defp unique_name(), do: :"Broadway#{System.unique_integer([:positive, :monotonic])}"
+  defp unique_name, do: :"Broadway#{System.unique_integer([:positive, :monotonic])}"
   defp random_alphastr(n), do: Enum.to_list(?a..?z) |> Enum.take_random(n) |> to_string()
+
+  describe "Acknowledger.build_ack_data/2" do
+    test "builds ack data map with qos, packet_id, topic and pid" do
+      msg = %{qos: 2, packet_id: 42, topic: "test/topic", payload: "hello"}
+      pid = self()
+
+      ack_data = Acknowledger.build_ack_data(msg, pid)
+
+      assert ack_data.qos == 2
+      assert ack_data.packet_id == 42
+      assert ack_data.topic == "test/topic"
+      assert ack_data.emqtt_pid == pid
+    end
+
+    test "defaults qos to 0 when missing" do
+      ack_data = Acknowledger.build_ack_data(%{topic: "t"}, self())
+      assert ack_data.qos == 0
+    end
+  end
+
+  describe "Connection QoS ack API" do
+    test "pubcomp/2 and puback/2 are exported" do
+      Code.ensure_loaded!(Connection)
+      assert function_exported?(Connection, :pubcomp, 2)
+      assert function_exported?(Connection, :puback, 2)
+    end
+  end
+
+  describe "MessageHandler behaviour" do
+    test "only defines handle_message/3 callback" do
+      callbacks = MessageHandler.behaviour_info(:callbacks)
+      assert {:handle_message, 3} in callbacks
+      refute {:handle_connect, 1} in callbacks
+      refute {:handle_disconnect, 1} in callbacks
+      refute {:handle_pubrel, 1} in callbacks
+    end
+  end
 
   describe "prepare_for_start/2 validation" do
     test "when :config is not present" do
@@ -130,200 +162,156 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         ArgumentError,
         ~r/required :host option not found/,
         fn ->
-          prepare_for_start_module_opts(config: [username: "rw"])
+          prepare_for_start_module_opts(topics: [{"test", 1}], config: [username: "rw"])
         end
       )
+    end
+
+    test "when topics is an empty list" do
+      assert_raise(
+        ArgumentError,
+        ~r/must not be empty/,
+        fn ->
+          prepare_for_start_module_opts(topics: [], config: [host: "localhost"])
+        end
+      )
+    end
+
+    test "when concurrency > 1 without shared_group" do
+      assert_raise(
+        ArgumentError,
+        ~r/shared_group is required when using concurrency > 1/,
+        fn ->
+          Producer.prepare_for_start(Forwarder,
+            name: :test_broadway,
+            producer: [
+              module: {Producer, @broadway_opts ++ [topics: [{"test", 1}]]},
+              concurrency: 2
+            ]
+          )
+        end
+      )
+    end
+
+    test "when concurrency > 1 with blank shared_group" do
+      for shared_group <- ["", "   ", "\t"] do
+        assert_raise(
+          ArgumentError,
+          ~r/shared_group is required when using concurrency > 1/,
+          fn ->
+            Producer.prepare_for_start(Forwarder,
+              name: :test_broadway,
+              producer: [
+                module: {Producer, @broadway_opts ++ [topics: [{"test", 1}], shared_group: shared_group]},
+                concurrency: 2
+              ]
+            )
+          end
+        )
+      end
+    end
+
+    test "concurrency > 1 with shared_group succeeds" do
+      {children, _opts} =
+        Producer.prepare_for_start(Forwarder,
+          name: :test_broadway,
+          producer: [
+            module: {Producer, @broadway_opts ++ [topics: [{"test", 1}], shared_group: "my_group"]},
+            concurrency: 2
+          ]
+        )
+
+      assert children == []
     end
   end
 
   describe "producer" do
+    test "logs an error when broker is unreachable" do
+      name = unique_name()
+      test_pid = self()
+
+      log =
+        capture_log(fn ->
+          # Spawn an unlinked process so the inevitable exit from Broadway's
+          # crash does not propagate to the test. Because init/1 now returns
+          # immediately and the connect happens asynchronously, we must keep
+          # the spawned process alive until Broadway's supervisor gives up
+          # and the linked EXIT signal kills us.
+          pid =
+            spawn(fn ->
+              try do
+                {:ok, _} =
+                  Broadway.start_link(Forwarder,
+                    name: name,
+                    context: %{test_pid: test_pid},
+                    producer: [
+                      module:
+                        {Producer,
+                         topics: [{"test", :at_least_once}],
+                         config: [host: "localhost", port: 9999, clientid: "unreachable-test"]},
+                      concurrency: 1
+                    ],
+                    processors: [default: [concurrency: 1]],
+                    batchers: [default: [batch_size: 10, batch_timeout: 50]]
+                  )
+
+                Process.sleep(5000)
+              catch
+                :exit, _ -> :ok
+              end
+            end)
+
+          ref = Process.monitor(pid)
+
+          receive do
+            {:DOWN, ^ref, :process, ^pid, _} -> :ok
+          after
+            5000 -> :ok
+          end
+        end)
+
+      assert log =~ "Failed to connect to MQTT broker"
+      assert log =~ "9999"
+      assert log =~ "localhost"
+    end
+
+    @tag :requires_mqtt
     test "receive messages" do
       client_id = random_alphastr(10)
 
       broadway_opts =
-        Keyword.merge(@broadway_opts, buffer_size: 10, buffer_overflow_strategy: :drop_head)
+        @broadway_opts
         |> put_in([:config, :clientid], client_id)
 
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
-      # Wait a bit for Broadway to fully start and connect before pushing messages
+      {:ok, pid} =
+        start_broadway(unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
       Process.sleep(100)
 
       MessageServer.push_messages(message_server, "test", 1..5)
 
       for _message <- 1..5 do
-        assert_receive {:message_handled, _data, _metadata}, 200
+        assert_receive {:message_handled, _data, _metadata}, 500
       end
 
       stop_process(pid)
     end
 
-    test "durable buffer writes messages to log file" do
-      self = self()
-      client_id = random_alphastr(10)
-
-      broadway_opts =
-        Keyword.merge(@broadway_opts, buffer_log_dir: System.tmp_dir!(), buffer_durability: :durable)
-        |> put_in([:config, :clientid], client_id)
-
-      {:ok, message_server} = MessageServer.start_link()
-
-      # Attach telemetry listener BEFORE starting Broadway
-      capture_log(fn ->
-        :ok =
-          :telemetry.attach(
-            "#{client_id}-events",
-            [:off_broadway_emqtt, :buffer, :log_write],
-            fn name, measurements, metadata, _ ->
-              send(self, {:telemetry_event, name, measurements, metadata})
-            end,
-            nil
-          )
-      end)
-
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
-
-      # Wait a bit for Broadway to fully start and connect before pushing messages
-      Process.sleep(100)
-
-      MessageServer.push_messages(message_server, "test", 1..5)
-
-      for _ <- 1..5 do
-        assert_receive {:telemetry_event, [:off_broadway_emqtt, :buffer, :log_write], %{time: _, count: 1},
-                        %{client_id: ^client_id, topic: "test", buffer_size: _}},
-                       200
-
-        assert_receive {:message_handled, _data, _metadata}, 200
-      end
-
-      :ok = :telemetry.detach("#{client_id}-events")
-      stop_process(pid)
-    end
-
-    test "durable buffer attempts to replay existing messages on start" do
-      self = self()
-      client_id = random_alphastr(10)
-
-      broadway_opts =
-        Keyword.merge(@broadway_opts, buffer_log_dir: System.tmp_dir!(), buffer_durability: :durable)
-        |> put_in([:config, :clientid], client_id)
-        |> put_in([:config, :clean_start], false)
-
-      {:ok, message_server} = MessageServer.start_link()
-
-      # Attach telemetry listener BEFORE starting Broadway to catch initialization events
-      capture_log(fn ->
-        :ok =
-          :telemetry.attach(
-            "#{client_id}-events",
-            [:off_broadway_emqtt, :replay_buffer, :start],
-            fn name, measurements, metadata, _ ->
-              send(self, {:telemetry_event, name, measurements, metadata})
-            end,
-            nil
-          )
-      end)
-
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
-
-      assert_receive {:telemetry_event, [:off_broadway_emqtt, :replay_buffer, :start], _, %{client_id: ^client_id}},
-                     200
-
-      :ok = :telemetry.detach("#{client_id}-events")
-      stop_process(pid)
-    end
-
-    test "reject message when buffer is full" do
-      self = self()
-      client_id = random_alphastr(10)
-
-      broadway_opts =
-        Keyword.merge(@broadway_opts, buffer_size: 5, buffer_overflow_strategy: :reject)
-        |> put_in([:config, :clientid], client_id)
-
-      {:ok, message_server} = MessageServer.start_link()
-
-      capture_log(fn ->
-        :ok =
-          :telemetry.attach(
-            "#{client_id}-events",
-            [:off_broadway_emqtt, :buffer, :reject_message],
-            fn name, measurements, metadata, _ ->
-              send(self, {:telemetry_event, name, measurements, metadata})
-            end,
-            nil
-          )
-      end)
-
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :exactly_once}]])
-
-      # Wait for Broadway to start and connect
-      Process.sleep(100)
-
-      # Push messages rapidly to fill the buffer
-      MessageServer.push_messages(message_server, "test", 1..6)
-
-      assert_receive {:telemetry_event, [:off_broadway_emqtt, :buffer, :reject_message], %{time: _, count: 1},
-                      %{client_id: ^client_id, topic: "test", buffer_size: 5}},
-                     200
-
-      for _ <- 1..5, do: assert_receive({:message_handled, _, _}, 200)
-
-      :ok = :telemetry.detach("#{client_id}-events")
-      stop_process(pid)
-    end
-
-    test "drops head when buffer is full" do
-      self = self()
-      client_id = random_alphastr(10)
-
-      broadway_opts =
-        Keyword.merge(@broadway_opts, buffer_size: 5, buffer_overflow_strategy: :drop_head)
-        |> put_in([:config, :clientid], client_id)
-
-      {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :exactly_once}]])
-
-      capture_log(fn ->
-        :ok =
-          :telemetry.attach(
-            "#{client_id}-events",
-            [:off_broadway_emqtt, :buffer, :drop_message],
-            fn name, measurements, metadata, _ ->
-              send(self, {:telemetry_event, name, measurements, metadata})
-            end,
-            nil
-          )
-      end)
-
-      MessageServer.push_messages(message_server, "test", 1..6)
-
-      assert_receive {:telemetry_event, [:off_broadway_emqtt, :buffer, :drop_message], %{time: _, count: 1},
-                      %{client_id: ^client_id, topic: "test", buffer_size: 5}},
-                     200
-
-      for _ <- 1..5, do: assert_receive({:message_handled, _, _}, 200)
-
-      :ok = :telemetry.detach("#{client_id}-events")
-      stop_process(pid)
-    end
-
-    test "emits telemetry events" do
+    @tag :requires_mqtt
+    test "emits telemetry events on connection up" do
       self = self()
       client_id = random_alphastr(10)
 
       broadway_opts =
         put_in(@broadway_opts, [:config, :clientid], client_id)
 
-      {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server, unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
-
       capture_log(fn ->
         :ok =
           :telemetry.attach(
             "#{client_id}-events",
-            [:off_broadway_emqtt, :receive_messages, :start],
+            [:off_broadway_emqtt, :connection, :up],
             fn name, measurements, metadata, _ ->
               send(self, {:telemetry_event, name, measurements, metadata})
             end,
@@ -331,21 +319,225 @@ defmodule OffBroadway.EMQTT.ProducerTest do
           )
       end)
 
-      MessageServer.push_messages(message_server, "test", [1])
+      {:ok, pid} =
+        start_broadway(unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
-      assert_receive {:telemetry_event, [:off_broadway_emqtt, :receive_messages, :start],
-                      %{system_time: _, monotonic_time: _}, %{client_id: ^client_id}},
-                     200
+      expected_client_id = "#{client_id}_0"
+
+      assert_receive {:telemetry_event, [:off_broadway_emqtt, :connection, :up], %{time: _},
+                      %{client_id: ^expected_client_id, producer_index: 0}},
+                     500
 
       :ok = :telemetry.detach("#{client_id}-events")
       stop_process(pid)
     end
 
+    @tag :requires_mqtt
     test "stops the emqtt server when draining" do
-      {:ok, pid} = start_broadway(nil, unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
+      {:ok, pid} = start_broadway(unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
+      Process.sleep(100)
       Broadway.stop(pid, :normal)
 
       stop_process(pid)
+    end
+
+    @tag :requires_mqtt
+    test "emits connection down telemetry when emqtt process dies" do
+      self = self()
+      client_id = random_alphastr(10)
+      broadway_name = unique_name()
+
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], client_id)
+
+      :telemetry.attach(
+        "#{client_id}-down",
+        [:off_broadway_emqtt, :connection, :down],
+        fn _name, _measurements, metadata, _ ->
+          send(self, {:connection_down, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("#{client_id}-down") end)
+
+      {:ok, pid} =
+        start_broadway(broadway_name, broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          try do
+            Broadway.stop(pid, :normal)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
+
+      # Sleep briefly to allow the emqtt connection to establish before we inspect it.
+      # Process.sleep(200) is used instead of waiting for a telemetry :up event since
+      # that event is already covered by another test.
+      Process.sleep(200)
+
+      producer_pid = Broadway.producer_names(broadway_name) |> List.first() |> Process.whereis()
+
+      # NOTE: This traverses private internals of GenStage (:state) and Broadway
+      # (:module_state). May break on dependency upgrades.
+      %{state: %{module_state: %{emqtt_pid: emqtt_pid}}} = :sys.get_state(producer_pid)
+
+      Process.exit(emqtt_pid, :kill)
+
+      assert_receive {:connection_down, %{client_id: _, producer_index: 0}}, 1000
+    end
+
+    @tag :requires_mqtt
+    test "emits ack telemetry after successful message processing" do
+      self = self()
+      client_id = random_alphastr(10)
+
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], client_id)
+
+      :telemetry.attach(
+        "#{client_id}-ack",
+        [:off_broadway_emqtt, :receive_message, :ack],
+        fn _name, measurements, metadata, _ ->
+          send(self, {:ack_event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("#{client_id}-ack") end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(unique_name(), broadway_opts ++ [topics: [{"ack/telemetry/#{client_id}", :at_least_once}]])
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          try do
+            Broadway.stop(pid, :normal)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
+
+      # Sleep briefly to allow the emqtt connection and subscription to establish
+      # before publishing the test message.
+      Process.sleep(200)
+      MessageServer.push_messages(message_server, "ack/telemetry/#{client_id}", ["payload"], 1)
+
+      assert_receive {:ack_event, %{count: 1}, %{status: :on_success, qos: 1}}, 2000
+    end
+
+    @tag :requires_mqtt
+    test "cleans up persistent_term entry on stop" do
+      broadway_name = unique_name()
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
+      ack_ref = {broadway_name, 0}
+
+      {:ok, pid} =
+        start_broadway(broadway_name, broadway_opts ++ [topics: [{"#", :at_least_once}]])
+
+      # Term should exist while Broadway is running.
+      assert is_map(:persistent_term.get(ack_ref))
+
+      ref = Process.monitor(pid)
+      Broadway.stop(pid, :normal)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2000
+
+      # Term should be erased after the pipeline stops.
+      assert_raise ArgumentError, fn -> :persistent_term.get(ack_ref) end
+    end
+
+    @tag :requires_mqtt
+    test "uses custom message_handler to transform messages" do
+      client_id = random_alphastr(10)
+
+      broadway_opts =
+        @broadway_opts
+        |> put_in([:config, :clientid], client_id)
+        |> Keyword.put(:message_handler, CustomHandler)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(unique_name(), broadway_opts ++ [topics: [{"custom/handler/#{client_id}", :at_least_once}]])
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          try do
+            Broadway.stop(pid, :normal)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
+
+      Process.sleep(100)
+      MessageServer.push_messages(message_server, "custom/handler/#{client_id}", ["hello"], 1)
+
+      assert_receive {:message_handled, "hello", metadata}, 1000
+      assert metadata.custom == true
+    end
+
+    @tag :requires_mqtt
+    test "emits producer, subscription, and receive_message telemetry across the lifecycle" do
+      self = self()
+      client_id = random_alphastr(10)
+      broadway_name = unique_name()
+      topic = "lifecycle/telemetry/#{client_id}"
+
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], client_id)
+
+      events = [
+        [:off_broadway_emqtt, :producer, :init],
+        [:off_broadway_emqtt, :producer, :terminate],
+        [:off_broadway_emqtt, :subscription, :success],
+        [:off_broadway_emqtt, :receive_message, :start]
+      ]
+
+      handler_id = "#{client_id}-lifecycle"
+
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn name, _measurements, metadata, _ ->
+          send(self, {:telemetry, name, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(broadway_name, broadway_opts ++ [topics: [{topic, :at_least_once}]])
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :producer, :init],
+                      %{broadway_name: ^broadway_name, producer_index: 0}},
+                     500
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :subscription, :success],
+                      %{topic: ^topic, granted_qos: 1, producer_index: 0}},
+                     1000
+
+      MessageServer.push_messages(message_server, topic, ["hello"], 1)
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :receive_message, :start],
+                      %{topic: ^topic, qos: 1, producer_index: 0}},
+                     1000
+
+      ref = Process.monitor(pid)
+      Broadway.stop(pid, :normal)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2000
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :producer, :terminate],
+                      %{broadway_name: ^broadway_name, producer_index: 0, reason: _}},
+                     1000
     end
   end
 end
