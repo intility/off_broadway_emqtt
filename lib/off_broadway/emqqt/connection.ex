@@ -8,8 +8,6 @@ defmodule OffBroadway.EMQTT.Connection do
   - Unique client ID per producer index
   """
 
-  require Logger
-
   @type qos :: 0 | 1 | 2 | :at_most_once | :at_least_once | :exactly_once
 
   @spec start_link(keyword(), non_neg_integer()) ::

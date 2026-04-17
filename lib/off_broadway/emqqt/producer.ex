@@ -80,64 +80,37 @@ defmodule OffBroadway.EMQTT.Producer do
 
   @impl true
   def init(opts) do
+    # Keep init/1 cheap: the emqtt CONNECT handshake can take up to the user's
+    # `connect_timeout` (default 60s), but Broadway's supervisor calls us via
+    # GenServer.start_link whose default timeout is 5s and which Broadway does
+    # not expose for override. Doing the connect here would crash Broadway's
+    # start_link for any broker that responds slowly. Instead we set up state,
+    # install the ack options, and kick off the connect asynchronously.
     Process.flag(:trap_exit, true)
 
-    config = opts[:config]
     producer_index = get_in(opts, [:broadway, :index]) || 0
     max_inflight = opts[:max_inflight] || 100
+    ack_ref = {opts[:broadway_name], producer_index}
 
-    emqtt_config =
-      config
-      |> Keyword.put(:max_inflight, max_inflight)
-      |> maybe_set_receive_maximum(max_inflight)
+    :persistent_term.put(ack_ref, %{
+      on_success: opts[:on_success],
+      on_failure: opts[:on_failure]
+    })
 
-    case Connection.start_link(emqtt_config, producer_index) do
-      {:ok, emqtt_pid, client_id} ->
-        emqtt_ref = Process.monitor(emqtt_pid)
+    state = %__MODULE__{
+      config: opts[:config],
+      topics: opts[:topics],
+      shared_group: opts[:shared_group],
+      max_inflight: max_inflight,
+      producer_index: producer_index,
+      broadway_name: opts[:broadway_name],
+      message_handler: opts[:message_handler],
+      ack_ref: ack_ref,
+      connected?: false
+    }
 
-        case Connection.subscribe(emqtt_pid, opts[:shared_group], opts[:topics]) do
-          :ok ->
-            ack_ref = {opts[:broadway_name], producer_index}
-
-            :persistent_term.put(ack_ref, %{
-              on_success: opts[:on_success],
-              on_failure: opts[:on_failure]
-            })
-
-            emit_telemetry(:up, %{
-              client_id: client_id,
-              producer_index: producer_index
-            })
-
-            state = %__MODULE__{
-              emqtt_pid: emqtt_pid,
-              emqtt_ref: emqtt_ref,
-              config: config,
-              topics: opts[:topics],
-              shared_group: opts[:shared_group],
-              max_inflight: max_inflight,
-              producer_index: producer_index,
-              broadway_name: opts[:broadway_name],
-              message_handler: opts[:message_handler],
-              client_id: client_id,
-              ack_ref: ack_ref
-            }
-
-            {:producer, state}
-
-          {:error, reason} ->
-            {:stop, {:subscribe_failed, reason}}
-        end
-
-      {:error, reason} ->
-        Logger.error(
-          "Failed to connect to MQTT broker " <>
-            "(#{inspect(Keyword.get(config, :host))}:#{Keyword.get(config, :port, 1883)}): " <>
-            "#{inspect(reason)}"
-        )
-
-        {:stop, {:connection_failed, reason}}
-    end
+    send(self(), :connect)
+    {:producer, state}
   end
 
   @impl Producer
@@ -175,6 +148,43 @@ defmodule OffBroadway.EMQTT.Producer do
   end
 
   @impl true
+  def handle_info(:connect, state) do
+    emqtt_config =
+      state.config
+      |> Keyword.put(:max_inflight, state.max_inflight)
+      |> maybe_set_receive_maximum(state.max_inflight)
+
+    with {:ok, emqtt_pid, client_id} <- Connection.start_link(emqtt_config, state.producer_index),
+         emqtt_ref = Process.monitor(emqtt_pid),
+         :ok <- Connection.subscribe(emqtt_pid, state.shared_group, state.topics) do
+      emit_telemetry(:up, %{
+        client_id: client_id,
+        producer_index: state.producer_index
+      })
+
+      {:noreply, [],
+       %{
+         state
+         | emqtt_pid: emqtt_pid,
+           emqtt_ref: emqtt_ref,
+           client_id: client_id,
+           connected?: true
+       }}
+    else
+      {:error, {:subscribe_failed, _topic, _reason} = reason} ->
+        {:stop, {:subscribe_failed, reason}, state}
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to connect to MQTT broker " <>
+            "(#{inspect(Keyword.get(state.config, :host))}:#{Keyword.get(state.config, :port, 1883)}): " <>
+            "#{inspect(reason)}"
+        )
+
+        {:stop, {:connection_failed, reason}, state}
+    end
+  end
+
   def handle_info({:publish, mqtt_msg}, state) do
     broadway_msg = build_broadway_message(mqtt_msg, state)
     {:noreply, [broadway_msg], state}

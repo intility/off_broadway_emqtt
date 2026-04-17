@@ -215,23 +215,29 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       log =
         capture_log(fn ->
           # Spawn an unlinked process so the inevitable exit from Broadway's
-          # failed start does not propagate to the test process.
+          # crash does not propagate to the test. Because init/1 now returns
+          # immediately and the connect happens asynchronously, we must keep
+          # the spawned process alive until Broadway's supervisor gives up
+          # and the linked EXIT signal kills us.
           pid =
             spawn(fn ->
               try do
-                Broadway.start_link(Forwarder,
-                  name: name,
-                  context: %{test_pid: test_pid},
-                  producer: [
-                    module:
-                      {Producer,
-                       topics: [{"test", :at_least_once}],
-                       config: [host: "localhost", port: 9999, clientid: "unreachable-test"]},
-                    concurrency: 1
-                  ],
-                  processors: [default: [concurrency: 1]],
-                  batchers: [default: [batch_size: 10, batch_timeout: 50]]
-                )
+                {:ok, _} =
+                  Broadway.start_link(Forwarder,
+                    name: name,
+                    context: %{test_pid: test_pid},
+                    producer: [
+                      module:
+                        {Producer,
+                         topics: [{"test", :at_least_once}],
+                         config: [host: "localhost", port: 9999, clientid: "unreachable-test"]},
+                      concurrency: 1
+                    ],
+                    processors: [default: [concurrency: 1]],
+                    batchers: [default: [batch_size: 10, batch_timeout: 50]]
+                  )
+
+                Process.sleep(5000)
               catch
                 :exit, _ -> :ok
               end
@@ -242,7 +248,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
           receive do
             {:DOWN, ^ref, :process, ^pid, _} -> :ok
           after
-            2000 -> :ok
+            5000 -> :ok
           end
         end)
 
