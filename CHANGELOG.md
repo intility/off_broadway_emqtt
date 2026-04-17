@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.4.0](https://github.com/intility/off_broadway_emqtt/compare/v0.3.0...v0.4.0) (2026-04-17)
+
+
+### Features
+
+* Add .tool-versions file with Erlang and Elixir versions ([298aaa3](https://github.com/intility/off_broadway_emqtt/commit/298aaa3e25bd7a11999bc7239254e9ed6f1d5195))
+* Add comprehensive telemetry events for producer lifecycle and subscriptions ([c9812b0](https://github.com/intility/off_broadway_emqtt/commit/c9812b0102dded55047cac28c2fd34585f29a59d))
+* Add disk log support for ETS buffer cache ([a4196b9](https://github.com/intility/off_broadway_emqtt/commit/a4196b9d4121c9e748fd2ee910eece473c55adea))
+* add MQTT v5 Receive-Maximum flow control and comprehensive tests ([5b58567](https://github.com/intility/off_broadway_emqtt/commit/5b5856715407f14f904a6efd827da779e1758272))
+* **broker:** add durable buffer storage with disk_log ([8c5c7fe](https://github.com/intility/off_broadway_emqtt/commit/8c5c7fe0a725544b4cf96901963fdfef2472897d))
+* **broker:** Add telemetry spans for buffer operations ([a53cf30](https://github.com/intility/off_broadway_emqtt/commit/a53cf300db817e14b6fd1b551ea18fc35509c512))
+* **broker:** If clean_start option is true, skip buffer replay ([89c357b](https://github.com/intility/off_broadway_emqtt/commit/89c357bbfa9750e4c8fb2ad2e16f7303189391ed))
+* **buffer:** updated docs ([f888f67](https://github.com/intility/off_broadway_emqtt/commit/f888f676ee87758a2a7cb6ffc2024ce878dc4ae5))
+* **ci:** update Elixir/OTP versions and enhance Mosquitto setup ([115dbcc](https://github.com/intility/off_broadway_emqtt/commit/115dbccb82ce8620c7db7f63a45287a2248fadac))
+* **deps:** update dependencies to latest versions ([c1337ba](https://github.com/intility/off_broadway_emqtt/commit/c1337ba3ece7ba4c351dbcb5b3f2a734b63b33b4))
+* **emqtt:** Improve broker termination process ([cf791ee](https://github.com/intility/off_broadway_emqtt/commit/cf791ee2dd637247643bcbdf05e5179a3849689d))
+* **mosquitto:** Add TLS certificate generation and configuration ([9bda044](https://github.com/intility/off_broadway_emqtt/commit/9bda044b0f2a7730a4651cb2068ac5d450d61b65))
+* Properly disconnect from MQTT broker on terminate ([b63dcd4](https://github.com/intility/off_broadway_emqtt/commit/b63dcd42e25816aaaa8d04b47eb8710260863a3e))
+* **telemetry:** Add detailed telemetry documentation ([23ea346](https://github.com/intility/off_broadway_emqtt/commit/23ea3467f81743f48f2d2811bc9d6906c238343a))
+
+
+### Bug Fixes
+
+* **broker:** handle subscription errors and adjust logging level for buffer threshold ([38cbb7f](https://github.com/intility/off_broadway_emqtt/commit/38cbb7fc75d5f2da00969e13750e1596635ec884))
+* check for reference before demonitor ([cc3c92d](https://github.com/intility/off_broadway_emqtt/commit/cc3c92db4fc491ac458231004c960420e2813792))
+* Clean up persistent_term and improve error logging ([5667f83](https://github.com/intility/off_broadway_emqtt/commit/5667f83d02ba035b9ebc25b7a47a35b57a7802fe))
+* **connection:** call :emqtt.pubcomp instead of :emqtt.pubrec for QoS 2 ([2013327](https://github.com/intility/off_broadway_emqtt/commit/201332717e44d3aa54feb6d208c309e4fd136d99))
+* cowlib dep version ([48bf32e](https://github.com/intility/off_broadway_emqtt/commit/48bf32ecbf33058afaff1f53ca8ce9e14495ba1c))
+* **deps:** Make cowlib optional dev dependency ([162ce26](https://github.com/intility/off_broadway_emqtt/commit/162ce26a53cb0ea4d5f15eae79bf0b8dc785dcec))
+* don't block GenServer.init/1 ([850a370](https://github.com/intility/off_broadway_emqtt/commit/850a37081b5dfd83186e085c4759c49668c3f07c))
+* needs to have override true to run tests ([d9934eb](https://github.com/intility/off_broadway_emqtt/commit/d9934eb0760843c40f26903b718c1e5282dd19d3))
+* **options:** safe defaults for clean_start and topics ([ca092f7](https://github.com/intility/off_broadway_emqtt/commit/ca092f7f250f9fcd8ca4e5c74cb7d59928babaa7))
+* path ([520ea36](https://github.com/intility/off_broadway_emqtt/commit/520ea367b2d139522903940e1f6a57290dd102ba))
+* **producer:** Handle MQTT disconnection events and improve error handling ([1ba355e](https://github.com/intility/off_broadway_emqtt/commit/1ba355e15be1b4b014aa61d5bf898c6f5b765e9f))
+* read topic from message receipt ([ebce1f0](https://github.com/intility/off_broadway_emqtt/commit/ebce1f049e9385ed5596f1f89da7525b21d94b88))
+* remove override: true ([7ed52ca](https://github.com/intility/off_broadway_emqtt/commit/7ed52ca145ae7d7238064b8d3bfb32feb18bda01))
+* typo ([addc6d4](https://github.com/intility/off_broadway_emqtt/commit/addc6d497bc9197f2e19f2f476fbf6370c97376b))
+
+
+### Code Refactoring
+
+* **connection:** Extract client ID generation to public function ([43a4ec0](https://github.com/intility/off_broadway_emqtt/commit/43a4ec0a18068c8a5ef54edee4049a1c1db2f722))
+* Improve ack_ref handling and fix typespec accuracy ([45ee2ac](https://github.com/intility/off_broadway_emqtt/commit/45ee2acdad49096e33bd95ac1da88b8c0ee48f56))
+* **message_handler:** remove dead callbacks ([5b7e38d](https://github.com/intility/off_broadway_emqtt/commit/5b7e38dae082bd74c9a0b7eeebfc21154576a642))
+* **producer:** Move MQTT connection from init/1 to async handler ([bc33189](https://github.com/intility/off_broadway_emqtt/commit/bc331890a7aba63a75561a7fe743929cec4a63ff))
+* **producer:** Simplify MQTT producer by removing ETS buffer ([7065d41](https://github.com/intility/off_broadway_emqtt/commit/7065d410c166dd0a0fa60416a70a87da48ee19fd))
+* **producer:** Validate non-blank shared_group for concurrent producers ([d8b8255](https://github.com/intility/off_broadway_emqtt/commit/d8b82552c56da55f7ec0746cda6ecd023f48107e))
+
+
+### Documentation
+
+* add override: true to readme ([1093325](https://github.com/intility/off_broadway_emqtt/commit/1093325917391f531abbfefb6484c20afcd2193f))
+* remove defaults from README example ([4472c92](https://github.com/intility/off_broadway_emqtt/commit/4472c92708a4b0f563cabea36229d5948b3b2fb2))
+* Update changelog release dates and improve reconnection guidance ([ae8ed9c](https://github.com/intility/off_broadway_emqtt/commit/ae8ed9cd707a1980142d006a007c7c0c164985cb))
+* Update dependency installation instructions ([d6f50a1](https://github.com/intility/off_broadway_emqtt/commit/d6f50a1117c8faa88c9d55090da4cf23a29e47c6))
+* update description for why credentials are committed ([0fc3160](https://github.com/intility/off_broadway_emqtt/commit/0fc316075c1b23fb7eb7bfb19894192846c8103a))
+* update docs ([7bdfc83](https://github.com/intility/off_broadway_emqtt/commit/7bdfc83137af8f8a7ef5520af96ec9edd2065cda))
+* update docs ([3f504d3](https://github.com/intility/off_broadway_emqtt/commit/3f504d37e0595c0982c047cba313be293886cfc8))
+* update installation instructions in readme file ([1e9e663](https://github.com/intility/off_broadway_emqtt/commit/1e9e66374452888d59faf8631e85ca7477654669))
+* Update license badge to Apache 2.0 ([e82be7d](https://github.com/intility/off_broadway_emqtt/commit/e82be7d003d8645651ea3206f341f7801bc794ca))
+* update README ([d84e9c4](https://github.com/intility/off_broadway_emqtt/commit/d84e9c478002532474d5a3f618482af4ac7afcb1))
+* update README ([2efd585](https://github.com/intility/off_broadway_emqtt/commit/2efd585a8685868e234ee5eea4fbeacd85d37498))
+* update README ([ef4d5e5](https://github.com/intility/off_broadway_emqtt/commit/ef4d5e52e98362d37d803226c23b04ad2e3dbda3))
+* update README ([48b62ca](https://github.com/intility/off_broadway_emqtt/commit/48b62ca3671d0d4cbae120aaa6291e1fa3a60bc4))
+* update README ([f30f592](https://github.com/intility/off_broadway_emqtt/commit/f30f592a0ebc06d34ae49c7311dc1c32d0eff0cd))
+* update README and changelog for v0.3.0 release ([1be0fdc](https://github.com/intility/off_broadway_emqtt/commit/1be0fdc5dd7a544a1da36c0ecf92e41cf1ff5af6))
+* Update release date for v0.2.0 in Changelog ([07cb6fd](https://github.com/intility/off_broadway_emqtt/commit/07cb6fd5d72b7a9bc8ec23be9a72804fa6e632a3))
+* update url ([2e45836](https://github.com/intility/off_broadway_emqtt/commit/2e4583646ab3a43080c75a98f5c9b0410bde2140))
+
+
+### Build System
+
+* **deps:** Upgrade dependencies ([17f1afb](https://github.com/intility/off_broadway_emqtt/commit/17f1afbe463322204c25e626b54da1dbfb6b81a1))
+
+
+### CI
+
+* Add release automation and modernize CI workflows ([3a5e601](https://github.com/intility/off_broadway_emqtt/commit/3a5e60134f32f7ddefc411d73b326adbed91f98e))
+* Rename CI pipeline to Elixir CI ([de2789b](https://github.com/intility/off_broadway_emqtt/commit/de2789b2bc16d69dccd9013071cc46e34aad2f4b))
+* Update GitHub Actions and Elixir/OTP versions ([809fd59](https://github.com/intility/off_broadway_emqtt/commit/809fd59574c25d12b930a22ecd6d0463b562b05f))
+* Update GitHub Actions runner to Ubuntu 22.04 ([2aaeb99](https://github.com/intility/off_broadway_emqtt/commit/2aaeb99ea9897f0b790c44637d0ca4f44c9c4733))
+* **workflows:** Update Elixir CI to use Ubuntu 24.04 and newer OTP versions ([e1f3ba3](https://github.com/intility/off_broadway_emqtt/commit/e1f3ba395084aeff4ac511a951edb6b0a655f294))
+
+
+### Tests
+
+* update tests ([52df95e](https://github.com/intility/off_broadway_emqtt/commit/52df95e2f640ccd7a8adb91d2324bb50220291d8))
+
 ## [0.3.0](https://github.com/intility/off_broadway_emqtt/compare/v0.2.1...v0.3.0) (2026-04-17)
 
 _Breaking changes and reliability rework._
