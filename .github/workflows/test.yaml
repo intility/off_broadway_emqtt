@@ -20,7 +20,9 @@ jobs:
       actions: read
       contents: read
       pull-requests: write
-    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@8538d07c58d0c44e844e68a773ec729f21ee4ed7 # v2.2.1
+    # Pinned to main: the `services:` input (used below for Mosquitto) is not yet
+    # part of a tagged release. Bump to a tag once one is cut that includes it.
+    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@fe7faf5b1c146402e7e9ad9f940566c21c7a19de # main
     with:
       otp-version: "28.3"
       elixir-version: "1.19.4"
