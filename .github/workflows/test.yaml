@@ -22,7 +22,7 @@ jobs:
       pull-requests: write
     # Pinned to main: the `services:` input (used below for Mosquitto) is not yet
     # part of a tagged release. Bump to a tag once one is cut that includes it.
-    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@cad452f3c46814ff7356a28cb9b8d8e3416d5ab3 # main
+    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@f3816e9797c20a016870cb9b3949b09aac570715 # main
     with:
       otp-version: "28.3"
       elixir-version: "1.19.4"
