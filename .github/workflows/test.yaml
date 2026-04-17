@@ -22,15 +22,16 @@ jobs:
       pull-requests: write
     # Pinned to main: the `services:` input (used below for Mosquitto) is not yet
     # part of a tagged release. Bump to a tag once one is cut that includes it.
-    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@fe7faf5b1c146402e7e9ad9f940566c21c7a19de # main
+    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@c1f36ae1c44df941ab51b34540cae89193c0bb3c # main
     with:
       otp-version: "28.3"
       elixir-version: "1.19.4"
       dialyzer: true
       sobelow: false
-      # NOTE: `${{ github.workspace }}` is not available in a reusable workflow
-      # call's `with:` block, so the host path is hardcoded to the standard
-      # GitHub-hosted runner layout: /home/runner/work/<repo>/<repo>.
+      # `${{ github.workspace }}` is NOT usable here: the expression is evaluated
+      # at reusable-workflow-call time, before any runner is assigned, and
+      # resolves to the empty string. Use the shell env var $GITHUB_WORKSPACE
+      # instead; the action expands env-var references in volume paths at runtime.
       services: |
         - name: mosquitto
           image: eclipse-mosquitto:2.0
@@ -41,7 +42,7 @@ jobs:
             8884:8884
             8885:8885
           volumes: |
-            /home/runner/work/off_broadway_emqtt/off_broadway_emqtt/.mosquitto:/mosquitto/config
-            /home/runner/work/off_broadway_emqtt/off_broadway_emqtt/.mosquitto/certs:/mosquitto/certs
+            $GITHUB_WORKSPACE/.mosquitto:/mosquitto/config
+            $GITHUB_WORKSPACE/.mosquitto/certs:/mosquitto/certs
           health-cmd: mosquitto_pub -h localhost -p 1883 -t healthcheck -m ok
           health-timeout: 30
