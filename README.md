@@ -204,11 +204,18 @@ producer: [
 
 ## Telemetry
 
-| Event                                           | Measurements                 | Metadata                                                             |
-|-------------------------------------------------|------------------------------|----------------------------------------------------------------------|
-| `[:off_broadway_emqtt, :connection, :up]`       | `%{time: integer}`           | `%{client_id: string, producer_index: integer}`                      |
-| `[:off_broadway_emqtt, :connection, :down]`     | `%{time: integer}`           | `%{client_id: string, producer_index: integer, reason: term}`        |
-| `[:off_broadway_emqtt, :receive_message, :ack]` | `%{time: integer, count: 1}` | `%{topic: string, qos: integer, status: :on_success \| :on_failure}` |
+| Event                                             | Measurements                 | Metadata                                                                                  |
+|---------------------------------------------------|------------------------------|-------------------------------------------------------------------------------------------|
+| `[:off_broadway_emqtt, :producer, :init]`         | `%{time: integer}`           | `%{broadway_name: term, producer_index: integer}`                                         |
+| `[:off_broadway_emqtt, :producer, :terminate]`    | `%{time: integer}`           | `%{broadway_name: term, producer_index: integer, client_id: string \| nil, reason: term}` |
+| `[:off_broadway_emqtt, :connection, :up]`         | `%{time: integer}`           | `%{client_id: string, producer_index: integer}`                                           |
+| `[:off_broadway_emqtt, :connection, :down]`       | `%{time: integer}`           | `%{client_id: string, producer_index: integer, reason: term}`                             |
+| `[:off_broadway_emqtt, :subscription, :success]`  | `%{time: integer}`           | `%{client_id: string, producer_index: integer, topic: string, granted_qos: 0..2}`         |
+| `[:off_broadway_emqtt, :subscription, :error]`    | `%{time: integer}`           | `%{client_id: string, producer_index: integer, topic: string, reason: term}`              |
+| `[:off_broadway_emqtt, :receive_message, :start]` | `%{time: integer, count: 1}` | `%{client_id: string, producer_index: integer, topic: string, qos: integer}`              |
+| `[:off_broadway_emqtt, :receive_message, :ack]`   | `%{time: integer, count: 1}` | `%{topic: string, qos: integer, status: :on_success \| :on_failure}`                      |
+
+See the Producer moduledoc for common `connection.down` reason shapes (auth failures, TLS errors, transport errors).
 
 ## Changelog
 

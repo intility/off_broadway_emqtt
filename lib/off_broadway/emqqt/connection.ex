@@ -27,28 +27,34 @@ defmodule OffBroadway.EMQTT.Connection do
     end
   end
 
-  @spec subscribe(pid(), String.t() | nil, [{String.t(), qos}]) :: :ok | {:error, term()}
+  @spec subscribe(pid(), String.t() | nil, [{String.t(), qos}]) ::
+          {:ok, [{String.t(), 0..2}]} | {:error, term()}
   def subscribe(conn, shared_group, topics) do
-    Enum.each(topics, fn {topic, qos} ->
-      full_topic = build_topic(topic, shared_group)
-      qos_value = normalize_qos(qos)
+    granted =
+      Enum.reduce(topics, [], fn {topic, qos}, acc ->
+        full_topic = build_topic(topic, shared_group)
+        qos_value = normalize_qos(qos)
 
-      case :emqtt.subscribe(conn, {full_topic, qos_value}) do
-        {:ok, _props, reason_codes} ->
-          # SUBACK reason codes: 0/1/2 = granted QoS 0/1/2, >= 128 = failure.
-          # A successful `{:ok, ...}` response can still contain per-topic
-          # failures (e.g. not authorized, topic filter invalid).
-          case Enum.filter(reason_codes, &(&1 >= 128)) do
-            [] -> :ok
-            failures -> throw({:subscribe_error, topic, {:reason_codes, failures}})
-          end
+        case :emqtt.subscribe(conn, {full_topic, qos_value}) do
+          {:ok, _props, reason_codes} ->
+            # SUBACK reason codes: 0/1/2 = granted QoS 0/1/2, >= 128 = failure.
+            # A successful `{:ok, ...}` response can still contain per-topic
+            # failures (e.g. not authorized, topic filter invalid).
+            case Enum.filter(reason_codes, &(&1 >= 128)) do
+              [] ->
+                [granted_qos | _] = reason_codes
+                [{topic, granted_qos} | acc]
 
-        {:error, reason} ->
-          throw({:subscribe_error, topic, reason})
-      end
-    end)
+              failures ->
+                throw({:subscribe_error, topic, {:reason_codes, failures}})
+            end
 
-    :ok
+          {:error, reason} ->
+            throw({:subscribe_error, topic, reason})
+        end
+      end)
+
+    {:ok, Enum.reverse(granted)}
   catch
     {:subscribe_error, topic, reason} ->
       {:error, {:subscribe_failed, topic, reason}}

@@ -464,5 +464,62 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       assert_receive {:message_handled, "hello", metadata}, 1000
       assert metadata.custom == true
     end
+
+    @tag :requires_mqtt
+    test "emits producer, subscription, and receive_message telemetry across the lifecycle" do
+      self = self()
+      client_id = random_alphastr(10)
+      broadway_name = unique_name()
+      topic = "lifecycle/telemetry/#{client_id}"
+
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], client_id)
+
+      events = [
+        [:off_broadway_emqtt, :producer, :init],
+        [:off_broadway_emqtt, :producer, :terminate],
+        [:off_broadway_emqtt, :subscription, :success],
+        [:off_broadway_emqtt, :receive_message, :start]
+      ]
+
+      handler_id = "#{client_id}-lifecycle"
+
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn name, _measurements, metadata, _ ->
+          send(self, {:telemetry, name, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(broadway_name, broadway_opts ++ [topics: [{topic, :at_least_once}]])
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :producer, :init],
+                      %{broadway_name: ^broadway_name, producer_index: 0}},
+                     500
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :subscription, :success],
+                      %{topic: ^topic, granted_qos: 1, producer_index: 0}},
+                     1000
+
+      MessageServer.push_messages(message_server, topic, ["hello"], 1)
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :receive_message, :start],
+                      %{topic: ^topic, qos: 1, producer_index: 0}},
+                     1000
+
+      ref = Process.monitor(pid)
+      Broadway.stop(pid, :normal)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2000
+
+      assert_receive {:telemetry, [:off_broadway_emqtt, :producer, :terminate],
+                      %{broadway_name: ^broadway_name, producer_index: 0, reason: _}},
+                     1000
+    end
   end
 end

@@ -37,21 +37,80 @@ defmodule OffBroadway.EMQTT.Producer do
 
   This library exposes the following telemetry events:
 
-    * `[:off_broadway_emqtt, :receive_message, :ack]` - Dispatched when acknowledging
-      a message to the MQTT broker.
+    * `[:off_broadway_emqtt, :producer, :init]` - Dispatched when a producer instance
+      has finished `init/1` and scheduled its first connection attempt.
 
-      * measurement: `%{time: System.system_time, count: 1}`
-      * metadata: `%{topic: string, qos: integer, status: :on_success | :on_failure}`
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{broadway_name: term, producer_index: integer}`
+
+    * `[:off_broadway_emqtt, :producer, :terminate]` - Dispatched when a producer
+      instance is terminating (Broadway shutdown, crash, or supervisor restart).
+
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{broadway_name: term, producer_index: integer, client_id: string | nil, reason: term}`
 
     * `[:off_broadway_emqtt, :connection, :up]` - Dispatched when connected to broker.
 
       * measurement: `%{time: System.system_time}`
       * metadata: `%{client_id: string, producer_index: integer}`
 
-    * `[:off_broadway_emqtt, :connection, :down]` - Dispatched when connection lost.
+    * `[:off_broadway_emqtt, :connection, :down]` - Dispatched when connection lost,
+      including when the initial connect fails and when emqtt signals a disconnect
+      during reconnect. See "Common `connection.down` reasons" below.
 
       * measurement: `%{time: System.system_time}`
       * metadata: `%{client_id: string, producer_index: integer, reason: term}`
+
+    * `[:off_broadway_emqtt, :subscription, :success]` - Dispatched for each topic
+      the broker granted a subscription on. `granted_qos` is the actual QoS the
+      broker assigned, which may be lower than requested.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{client_id: string, producer_index: integer, topic: string, granted_qos: 0..2}`
+
+    * `[:off_broadway_emqtt, :subscription, :error]` - Dispatched when subscribing
+      to a topic fails (either a transport error or a SUBACK reason code >= 128).
+
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{client_id: string, producer_index: integer, topic: string, reason: term}`
+
+    * `[:off_broadway_emqtt, :receive_message, :start]` - Dispatched when a PUBLISH
+      arrives from the broker, before Broadway dispatch. Pairs with
+      `receive_message.ack` for end-to-end latency measurement.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * metadata: `%{client_id: string, producer_index: integer, topic: string, qos: integer}`
+
+    * `[:off_broadway_emqtt, :receive_message, :ack]` - Dispatched when acknowledging
+      a message to the MQTT broker.
+
+      * measurement: `%{time: System.system_time, count: 1}`
+      * metadata: `%{topic: string, qos: integer, status: :on_success | :on_failure}`
+
+  ### Common `connection.down` reasons
+
+  The `reason` field carries the raw error returned by emqtt or the MQTT broker.
+  Common values a consumer may want to pattern-match on:
+
+    * Authentication failures
+      * `:bad_username_or_password` (MQTT 3.1.1 CONNACK code 4)
+      * `:not_authorized` (MQTT 3.1.1 code 5, MQTT 5 code 135)
+      * `{:unacceptable_protocol_version, _}`
+    * TLS/certificate failures
+      * `{:tls_alert, {:unknown_ca, _}}`
+      * `{:tls_alert, {:bad_certificate, _}}`
+      * `{:tls_alert, {:handshake_failure, _}}` - often SNI or hostname mismatch
+      * `{:tls_alert, {:certificate_expired, _}}`
+    * Network/transport failures
+      * `:econnrefused` - broker not listening on host:port
+      * `:nxdomain` - DNS resolution failed
+      * `:timeout` - CONNACK did not arrive within `connect_timeout`
+      * `:closed` / `:tcp_closed` - broker closed the socket
+    * Server/session failures (MQTT 5 reason codes surface as integers or atoms)
+      * `:server_unavailable`, `:server_busy`, `:quota_exceeded`
+
+  When emqtt's built-in `reconnect` is enabled, `connection.down` fires with the
+  CONNACK reason code integer, not an atom.
   """
 
   use GenStage
@@ -109,6 +168,11 @@ defmodule OffBroadway.EMQTT.Producer do
       connected?: false
     }
 
+    emit_telemetry([:producer, :init], %{
+      broadway_name: state.broadway_name,
+      producer_index: producer_index
+    })
+
     send(self(), :connect)
     {:producer, state}
   end
@@ -156,11 +220,20 @@ defmodule OffBroadway.EMQTT.Producer do
 
     with {:ok, emqtt_pid, client_id} <- Connection.start_link(emqtt_config, state.producer_index),
          emqtt_ref = Process.monitor(emqtt_pid),
-         :ok <- Connection.subscribe(emqtt_pid, state.shared_group, state.topics) do
-      emit_telemetry(:up, %{
+         {:ok, granted} <- Connection.subscribe(emqtt_pid, state.shared_group, state.topics) do
+      emit_telemetry([:connection, :up], %{
         client_id: client_id,
         producer_index: state.producer_index
       })
+
+      for {topic, granted_qos} <- granted do
+        emit_telemetry([:subscription, :success], %{
+          client_id: client_id,
+          producer_index: state.producer_index,
+          topic: topic,
+          granted_qos: granted_qos
+        })
+      end
 
       {:noreply, [],
        %{
@@ -171,8 +244,15 @@ defmodule OffBroadway.EMQTT.Producer do
            connected?: true
        }}
     else
-      {:error, {:subscribe_failed, _topic, _reason} = reason} ->
-        {:stop, {:subscribe_failed, reason}, state}
+      {:error, {:subscribe_failed, topic, subscribe_reason} = reason} ->
+        emit_telemetry([:subscription, :error], %{
+          client_id: Keyword.get(state.config, :clientid),
+          producer_index: state.producer_index,
+          topic: topic,
+          reason: subscribe_reason
+        })
+
+        {:stop, reason, state}
 
       {:error, reason} ->
         Logger.error(
@@ -181,17 +261,34 @@ defmodule OffBroadway.EMQTT.Producer do
             "#{inspect(reason)}"
         )
 
+        emit_telemetry([:connection, :down], %{
+          client_id: Keyword.get(state.config, :clientid),
+          producer_index: state.producer_index,
+          reason: reason
+        })
+
         {:stop, {:connection_failed, reason}, state}
     end
   end
 
   def handle_info({:publish, mqtt_msg}, state) do
+    emit_telemetry(
+      [:receive_message, :start],
+      %{
+        client_id: state.client_id,
+        producer_index: state.producer_index,
+        topic: mqtt_msg[:topic],
+        qos: mqtt_msg[:qos] || 0
+      },
+      %{count: 1}
+    )
+
     broadway_msg = build_broadway_message(mqtt_msg, state)
     {:noreply, [broadway_msg], state}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{emqtt_ref: ref} = state) do
-    emit_telemetry(:down, %{
+    emit_telemetry([:connection, :down], %{
       client_id: state.client_id,
       producer_index: state.producer_index,
       reason: reason
@@ -201,7 +298,7 @@ defmodule OffBroadway.EMQTT.Producer do
   end
 
   def handle_info({:EXIT, pid, reason}, %{emqtt_pid: pid} = state) do
-    emit_telemetry(:down, %{
+    emit_telemetry([:connection, :down], %{
       client_id: state.client_id,
       producer_index: state.producer_index,
       reason: reason
@@ -215,7 +312,7 @@ defmodule OffBroadway.EMQTT.Producer do
   # emqtt process does not exit, so the :DOWN / :EXIT handlers above never fire
   # and we would otherwise miss the telemetry event for the connection drop.
   def handle_info({:disconnected, reason_code, _props}, %{connected?: true} = state) do
-    emit_telemetry(:down, %{
+    emit_telemetry([:connection, :down], %{
       client_id: state.client_id,
       producer_index: state.producer_index,
       reason: reason_code
@@ -230,7 +327,7 @@ defmodule OffBroadway.EMQTT.Producer do
 
   # Fired by emqtt after a successful (re)connect when reconnect is enabled.
   def handle_info({:connected, _props}, %{connected?: false} = state) do
-    emit_telemetry(:up, %{
+    emit_telemetry([:connection, :up], %{
       client_id: state.client_id,
       producer_index: state.producer_index
     })
@@ -252,21 +349,29 @@ defmodule OffBroadway.EMQTT.Producer do
   end
 
   @impl true
-  def terminate(_reason, state) do
+  def terminate(reason, state) do
     if state.emqtt_pid && Process.alive?(state.emqtt_pid) do
       Process.demonitor(state.emqtt_ref, [:flush])
       Connection.disconnect(state.emqtt_pid)
     end
 
     if state.ack_ref, do: :persistent_term.erase(state.ack_ref)
+
+    emit_telemetry([:producer, :terminate], %{
+      broadway_name: state.broadway_name,
+      producer_index: state.producer_index,
+      client_id: state.client_id,
+      reason: reason
+    })
+
     :ok
   end
 
   defp build_broadway_message(mqtt_msg, state) do
-    message_handler = get_message_handler_module(state.message_handler)
+    {message_handler, handler_opts} = get_message_handler(state.message_handler)
     ack_ref = state.ack_ref
 
-    case apply(message_handler, :handle_message, [mqtt_msg, ack_ref, []]) do
+    case apply(message_handler, :handle_message, [mqtt_msg, ack_ref, handler_opts]) do
       %Broadway.Message{} = msg ->
         ack_data = Acknowledger.build_ack_data(mqtt_msg, state.emqtt_pid)
         %{msg | acknowledger: {Acknowledger, ack_ref, ack_data}}
@@ -278,8 +383,8 @@ defmodule OffBroadway.EMQTT.Producer do
     end
   end
 
-  defp get_message_handler_module({module, _opts}), do: module
-  defp get_message_handler_module(module), do: module
+  defp get_message_handler({module, opts}), do: {module, opts}
+  defp get_message_handler(module) when is_atom(module), do: {module, []}
 
   defp validate_shared_group!(nil, concurrency) when concurrency > 1 do
     raise ArgumentError, """
@@ -323,18 +428,10 @@ defmodule OffBroadway.EMQTT.Producer do
     end
   end
 
-  defp emit_telemetry(:up, metadata) do
+  defp emit_telemetry(event, metadata, measurements \\ %{}) do
     :telemetry.execute(
-      [:off_broadway_emqtt, :connection, :up],
-      %{time: System.system_time()},
-      metadata
-    )
-  end
-
-  defp emit_telemetry(:down, metadata) do
-    :telemetry.execute(
-      [:off_broadway_emqtt, :connection, :down],
-      %{time: System.system_time()},
+      [:off_broadway_emqtt | event],
+      Map.put(measurements, :time, System.system_time()),
       metadata
     )
   end
