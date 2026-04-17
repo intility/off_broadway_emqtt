@@ -28,6 +28,9 @@ jobs:
       elixir-version: "1.19.4"
       dialyzer: true
       sobelow: false
+      # NOTE: `${{ github.workspace }}` is not available in a reusable workflow
+      # call's `with:` block, so the host path is hardcoded to the standard
+      # GitHub-hosted runner layout: /home/runner/work/<repo>/<repo>.
       services: |
         - name: mosquitto
           image: eclipse-mosquitto:2.0
@@ -38,5 +41,7 @@ jobs:
             8884:8884
             8885:8885
           volumes: |
-            ${{ github.workspace }}/.mosquitto:/mosquitto/config
-            ${{ github.workspace }}/.mosquitto/certs:/mosquitto/certs
+            /home/runner/work/off_broadway_emqtt/off_broadway_emqtt/.mosquitto:/mosquitto/config
+            /home/runner/work/off_broadway_emqtt/off_broadway_emqtt/.mosquitto/certs:/mosquitto/certs
+          health-cmd: mosquitto_pub -h localhost -p 1883 -t healthcheck -m ok
+          health-timeout: 30
