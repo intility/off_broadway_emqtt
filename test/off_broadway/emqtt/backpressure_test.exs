@@ -36,7 +36,9 @@ defmodule OffBroadway.EMQTT.BackpressureTest do
              0 -> {false, 0}
              n -> {true, n - 1}
            end) do
-        true -> :ok
+        true ->
+          :ok
+
         false ->
           Process.sleep(50)
           wait_for_gate(gate)
@@ -45,7 +47,7 @@ defmodule OffBroadway.EMQTT.BackpressureTest do
   end
 
   test "broker respects max_inflight and does not send beyond the window" do
-    client_id = "backpressure-#{System.unique_integer([:positive, :monotonic])}"
+    client_id = MessageServer.unique_id("backpressure")
     # Use start (not start_link) so the gate agent is not linked to the test process.
     # Processor workers in other processes call the gate; if the test exits before
     # Broadway fully stops, we don't want the gate to die mid-flight.
@@ -79,6 +81,7 @@ defmodule OffBroadway.EMQTT.BackpressureTest do
     end)
 
     {:ok, server} = MessageServer.start_link("server-#{client_id}")
+
     on_exit(fn ->
       if Process.alive?(server), do: Process.exit(server, :normal)
     end)

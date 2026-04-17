@@ -198,9 +198,7 @@ defmodule OffBroadway.EMQTT.ProducerTest do
         Producer.prepare_for_start(Forwarder,
           name: :test_broadway,
           producer: [
-            module:
-              {Producer,
-               @broadway_opts ++ [topics: [{"test", 1}], shared_group: "my_group"]},
+            module: {Producer, @broadway_opts ++ [topics: [{"test", 1}], shared_group: "my_group"]},
             concurrency: 2
           ]
         )
@@ -310,7 +308,8 @@ defmodule OffBroadway.EMQTT.ProducerTest do
 
     @tag :requires_mqtt
     test "stops the emqtt server when draining" do
-      {:ok, pid} = start_broadway(unique_name(), @broadway_opts ++ [topics: [{"#", :at_least_once}]])
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
+      {:ok, pid} = start_broadway(unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
       Process.sleep(100)
       Broadway.stop(pid, :normal)
@@ -410,9 +409,10 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     @tag :requires_mqtt
     test "cleans up persistent_term entry on stop" do
       broadway_name = unique_name()
+      broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
 
       {:ok, pid} =
-        start_broadway(broadway_name, @broadway_opts ++ [topics: [{"#", :at_least_once}]])
+        start_broadway(broadway_name, broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
       # Term should exist while Broadway is running.
       assert is_map(:persistent_term.get(broadway_name))

@@ -28,4 +28,11 @@ defmodule OffBroadway.EMQTT.Test.MessageServer do
   def to_iodata(term) when is_integer(term), do: Integer.to_string(term)
   def to_iodata(term) when is_float(term), do: Float.to_string(term)
   def to_iodata(term), do: :erlang.term_to_binary(term)
+
+  # System.unique_integer/1 resets across BEAM restarts, which collides broker
+  # session state when clean_start: false. Combining os_time with a random
+  # component yields identifiers unique across both runs and within a run.
+  def unique_id(prefix) do
+    "#{prefix}-#{System.os_time(:nanosecond)}-#{:rand.uniform(1_000_000)}"
+  end
 end

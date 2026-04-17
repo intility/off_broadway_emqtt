@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.3.0 - Breaking changes and reliability rework
+## [0.3.0](https://github.com/intility/off_broadway_emqtt/compare/v0.2.1...v0.3.0) (2026-04-17)
 
-_Released unreleased_
+_Breaking changes and reliability rework._
 
 This release removes the ETS/disk-log buffer layer and replaces it with proper
 MQTT protocol-level backpressure. The result is a simpler, more reliable producer
@@ -119,16 +119,12 @@ producer: [
 
 ---
 
-## v0.2.1 - Patch
-
-_Released 2025-06-05_
+## [0.2.1](https://github.com/intility/off_broadway_emqtt/compare/v0.2.0...v0.2.1) (2025-06-05)
 
 - If `:clean_start` option is `true`, truncate the buffer log file and skip replay when the producer starts.
 - Properly disconnect from the MQTT broker on terminate.
 
-## v0.2.0 - Patch
-
-_Released 2025-06-03_
+## [0.2.0](https://github.com/intility/off_broadway_emqtt/compare/v0.1.0...v0.2.0) (2025-06-03)
 
 - Add support for wrapping the ETS buffer cache with [:disk_log](https://www.erlang.org/docs/17/man/disk_log) to persist cached messages for producer.
   - Introduced new option `buffer_durability` which can be either `:durable` or `:transient`. When `:durable`, 
@@ -138,9 +134,9 @@ _Released 2025-06-03_
     store buffer logs.
   - Added new telemetry events for `:durable` buffer operations.
 
-## v0.1.1 - Patch
+## 0.1.1 (unreleased)
 
-_Released unreleased_
+_Never tagged. Changes rolled into later releases._
 
 - Emitting `off_broadway_emqtt.receive_message.ack` reads message topic from message receipt instead of from the message body.
  This ensures that topic is included in telemetry events even if the message has been altered during dispatch.
@@ -149,9 +145,9 @@ _Released unreleased_
 - Return new state from `handle_continue` on connection error.
 - Publish the `payload` field as message data, and the rest as metadata.
 
-## v0.1.0 - Initial release
+## 0.1.0 (2024-09-24)
 
-_Released 2024-09-24_
+_Initial release._
 
 The initial release supports connecting to an MQTT broker using  [emqtt](https://github.com/emqx/emqtt), 
 and consume messages using a Broadway pipeline.

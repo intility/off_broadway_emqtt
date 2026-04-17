@@ -218,7 +218,7 @@ defmodule OffBroadway.EMQTT.Options do
             required: false
           ]
         ]
-      ],
+      ]
     ]
   end
 

@@ -104,14 +104,45 @@ before the restart. No messages are lost between restarts.
 If you want a fresh session on every connect (discarding unACKed messages), set
 `config: [clean_start: true]` explicitly.
 
+> [!NOTE]
+> Each producer instance connects with the configured `clientid` plus an
+> index suffix: `my-pipeline_0`, `my-pipeline_1`, and so on. A `concurrency: 1` pipeline configured
+> with `clientid: "my-pipeline"` appears on the broker as `my-pipeline_0`. If you are upgrading
+> from v0.2.x and rely on an exact clientid for a persistent session or ACL, either change your
+> config to `clientid: "my-pipeline_0"` or accept that the session will be treated as new on the
+> first v0.3.0 connect.
+
+### Reconnection
+
+By default, if the MQTT connection is lost the producer process stops and Broadway's supervisor
+restarts it. The fresh producer creates a new emqtt connection and re-subscribes to all topics.
+With `clean_start: false` (the default), the broker redelivers any unACKed QoS 1/2 messages.
+
+Alternatively, you can enable emqtt's built-in reconnect by passing `reconnect` in `config`:
+
+```elixir
+config: [
+  host: "mqtt.example.com",
+  clientid: "my-pipeline",
+  reconnect: :infinity,
+  reconnect_timeout: 5,
+  clean_start: false
+]
+```
+
+> [!IMPORTANT] 
+> emqtt's reconnect reopens the TCP connection but does **not** re-subscribe. You must
+> set `clean_start: false` so the broker restores the session and delivers messages again. If you
+> enable `reconnect` with `clean_start: true`, messages silently stop arriving after the first reconnect.
+
 ### on_success and on_failure
 
-| Option | Value | Behaviour |
-|---|---|---|
-| `on_success` | `:ack` (default) | ACKs the message to the broker after successful processing |
-| `on_success` | `:noop` | Does not ACK; broker will redeliver |
-| `on_failure` | `:noop` (default) | Does not ACK; broker will redeliver (QoS 1/2) |
-| `on_failure` | `:ack` | ACKs even on failure; message is not redelivered |
+| Option       | Value             | Behaviour                                                  |
+|--------------|-------------------|------------------------------------------------------------|
+| `on_success` | `:ack` (default)  | ACKs the message to the broker after successful processing |
+| `on_success` | `:noop`           | Does not ACK; broker will redeliver                        |
+| `on_failure` | `:noop` (default) | Does not ACK; broker will redeliver (QoS 1/2)              |
+| `on_failure` | `:ack`            | ACKs even on failure; message is not redelivered           |
 
 ## Multiple consumers (concurrency)
 
@@ -173,10 +204,10 @@ producer: [
 
 ## Telemetry
 
-| Event | Measurements | Metadata |
-|---|---|---|
-| `[:off_broadway_emqtt, :connection, :up]` | `%{time: integer}` | `%{client_id: string, producer_index: integer}` |
-| `[:off_broadway_emqtt, :connection, :down]` | `%{time: integer}` | `%{client_id: string, producer_index: integer, reason: term}` |
+| Event                                           | Measurements                 | Metadata                                                             |
+|-------------------------------------------------|------------------------------|----------------------------------------------------------------------|
+| `[:off_broadway_emqtt, :connection, :up]`       | `%{time: integer}`           | `%{client_id: string, producer_index: integer}`                      |
+| `[:off_broadway_emqtt, :connection, :down]`     | `%{time: integer}`           | `%{client_id: string, producer_index: integer, reason: term}`        |
 | `[:off_broadway_emqtt, :receive_message, :ack]` | `%{time: integer, count: 1}` | `%{topic: string, qos: integer, status: :on_success \| :on_failure}` |
 
 ## Changelog

@@ -55,11 +55,12 @@ defmodule OffBroadway.EMQTT.RedeliveryTest do
   end
 
   test "unACKed QoS 1 message is redelivered after producer restart" do
-    client_id = "redeliver-#{System.unique_integer([:positive, :monotonic])}"
+    client_id = MessageServer.unique_id("redeliver")
     topic = "redelivery/test/#{client_id}"
 
     # Phase 1: start with a failing forwarder. Messages are received but not ACKed.
     {:ok, broadway1} = start_broadway(FailingForwarder, client_id, :noop, :ack)
+
     on_exit(fn ->
       if Process.alive?(broadway1) do
         try do
@@ -69,7 +70,9 @@ defmodule OffBroadway.EMQTT.RedeliveryTest do
         end
       end
     end)
+
     {:ok, server} = MessageServer.start_link("server-#{client_id}")
+
     on_exit(fn ->
       if Process.alive?(server), do: Process.exit(server, :normal)
     end)
@@ -80,7 +83,7 @@ defmodule OffBroadway.EMQTT.RedeliveryTest do
     assert_receive {:received, "important-message"}, 1000
 
     # Guard: ensure the message was not delivered twice within Phase 1.
-    refute_receive {:received, _}, 100
+    refute_receive {:received, _}, 200
 
     # Stop Broadway - emqtt disconnects without ACKing the message.
     ref = Process.monitor(broadway1)
@@ -96,6 +99,7 @@ defmodule OffBroadway.EMQTT.RedeliveryTest do
     # "#{client_id}_0". The same suffix must be used in both phases for the
     # broker to redeliver the unACKed message to the second session.
     {:ok, broadway2} = start_broadway(SucceedingForwarder, client_id, :noop, :ack)
+
     on_exit(fn ->
       if Process.alive?(broadway2) do
         try do

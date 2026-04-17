@@ -28,10 +28,7 @@ defmodule OffBroadway.EMQTT.QoSTest do
       name: :"broadway_qos_#{System.unique_integer([:positive])}",
       context: %{test_pid: self()},
       producer: [
-        module:
-          {OffBroadway.EMQTT.Producer,
-           topics: [{topic, qos}],
-           config: @base_config ++ [clientid: client_id]},
+        module: {OffBroadway.EMQTT.Producer, topics: [{topic, qos}], config: @base_config ++ [clientid: client_id]},
         concurrency: 1
       ],
       processors: [default: [concurrency: 1]],
@@ -39,7 +36,7 @@ defmodule OffBroadway.EMQTT.QoSTest do
     )
   end
 
-  defp random_client_id, do: "qos-test-#{System.unique_integer([:positive, :monotonic])}"
+  defp random_client_id, do: MessageServer.unique_id("qos-test")
 
   describe "QoS 0 (at_most_once)" do
     test "message is received" do
