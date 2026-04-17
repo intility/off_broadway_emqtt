@@ -391,21 +391,25 @@ defmodule OffBroadway.EMQTT.Producer do
   defp get_message_handler({module, opts}), do: {module, opts}
   defp get_message_handler(module) when is_atom(module), do: {module, []}
 
-  defp validate_shared_group!(nil, concurrency) when concurrency > 1 do
-    raise ArgumentError, """
-    shared_group is required when using concurrency > 1.
+  defp validate_shared_group!(shared_group, concurrency) when concurrency > 1 do
+    # An empty or whitespace-only shared_group produces subscription topics like
+    # `$share//my/topic`, which the broker rejects. Treat it the same as missing.
+    if not (is_binary(shared_group) and String.trim(shared_group) != "") do
+      raise ArgumentError, """
+      shared_group is required when using concurrency > 1.
 
-    Without shared subscriptions, each producer instance receives ALL messages,
-    causing duplicates. Configure shared_group to distribute messages:
+      Without shared subscriptions, each producer instance receives ALL messages,
+      causing duplicates. Configure shared_group to distribute messages:
 
-        producer: [
-          module: {OffBroadway.EMQTT.Producer,
-            shared_group: "my_group",
-            ...
-          },
-          concurrency: #{concurrency}
-        ]
-    """
+          producer: [
+            module: {OffBroadway.EMQTT.Producer,
+              shared_group: "my_group",
+              ...
+            },
+            concurrency: #{concurrency}
+          ]
+      """
+    end
   end
 
   defp validate_shared_group!(_shared_group, _concurrency), do: :ok

@@ -193,6 +193,24 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       )
     end
 
+    test "when concurrency > 1 with blank shared_group" do
+      for shared_group <- ["", "   ", "\t"] do
+        assert_raise(
+          ArgumentError,
+          ~r/shared_group is required when using concurrency > 1/,
+          fn ->
+            Producer.prepare_for_start(Forwarder,
+              name: :test_broadway,
+              producer: [
+                module: {Producer, @broadway_opts ++ [topics: [{"test", 1}], shared_group: shared_group]},
+                concurrency: 2
+              ]
+            )
+          end
+        )
+      end
+    end
+
     test "concurrency > 1 with shared_group succeeds" do
       {children, _opts} =
         Producer.prepare_for_start(Forwarder,

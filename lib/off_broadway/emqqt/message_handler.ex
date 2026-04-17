@@ -17,8 +17,8 @@ defmodule OffBroadway.EMQTT.MessageHandler do
       @behaviour unquote(__MODULE__)
 
       @impl unquote(__MODULE__)
-      def handle_message(message, broadway, opts),
-        do: unquote(__MODULE__).handle_message(message, broadway, opts)
+      def handle_message(message, ack_ref, opts),
+        do: unquote(__MODULE__).handle_message(message, ack_ref, opts)
 
       defoverridable handle_message: 3
     end
