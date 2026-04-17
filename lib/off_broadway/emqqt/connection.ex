@@ -10,21 +10,29 @@ defmodule OffBroadway.EMQTT.Connection do
 
   @type qos :: 0 | 1 | 2 | :at_most_once | :at_least_once | :exactly_once
 
-  @spec start_link(keyword(), non_neg_integer()) ::
-          {:ok, pid(), String.t()} | {:error, term()}
+  @spec start_link(keyword(), non_neg_integer()) :: {:ok, pid()} | {:error, term()}
   def start_link(config, producer_index) do
     config =
       config
       |> Keyword.put(:auto_ack, false)
       |> Keyword.put(:owner, self())
-      |> update_client_id(producer_index)
-
-    effective_client_id = Keyword.fetch!(config, :clientid)
+      |> Keyword.put(:clientid, get_client_id(config, producer_index))
 
     with {:ok, pid} <- :emqtt.start_link(config),
          {:ok, _props} <- :emqtt.connect(pid) do
-      {:ok, pid, effective_client_id}
+      {:ok, pid}
     end
+  end
+
+  @doc """
+  Returns the client ID the connection will advertise to the broker, given a
+  producer config and producer index. Pure — callers can use this to correlate
+  telemetry or logs without waiting for the connection to be established.
+  """
+  @spec get_client_id(keyword(), non_neg_integer()) :: String.t()
+  def get_client_id(config, producer_index) do
+    base_id = Keyword.get(config, :clientid, :emqtt.random_client_id())
+    "#{base_id}_#{producer_index}"
   end
 
   @spec subscribe(pid(), String.t() | nil, [{String.t(), qos}]) ::
@@ -80,12 +88,6 @@ defmodule OffBroadway.EMQTT.Connection do
   @spec pause(pid()) :: :ok
   def pause(conn) do
     :emqtt.pause(conn)
-  end
-
-  defp update_client_id(config, producer_index) do
-    base_id = Keyword.get(config, :clientid, :emqtt.random_client_id())
-    new_id = "#{base_id}_#{producer_index}"
-    Keyword.put(config, :clientid, new_id)
   end
 
   defp build_topic(topic, nil), do: topic

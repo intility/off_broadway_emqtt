@@ -134,7 +134,7 @@ defmodule OffBroadway.EMQTT.Producer do
     :message_handler,
     :client_id,
     :ack_ref,
-    connected?: true
+    connected?: false
   ]
 
   @impl true
@@ -213,12 +213,17 @@ defmodule OffBroadway.EMQTT.Producer do
 
   @impl true
   def handle_info(:connect, state) do
+    # Compute the client_id up front so every telemetry
+    # metadata map uses the same value the broker will see, regardless of
+    # whether we fail during connect, during subscribe, or succeed.
+    client_id = Connection.get_client_id(state.config, state.producer_index)
+
     emqtt_config =
       state.config
       |> Keyword.put(:max_inflight, state.max_inflight)
       |> maybe_set_receive_maximum(state.max_inflight)
 
-    with {:ok, emqtt_pid, client_id} <- Connection.start_link(emqtt_config, state.producer_index),
+    with {:ok, emqtt_pid} <- Connection.start_link(emqtt_config, state.producer_index),
          emqtt_ref = Process.monitor(emqtt_pid),
          {:ok, granted} <- Connection.subscribe(emqtt_pid, state.shared_group, state.topics) do
       emit_telemetry([:connection, :up], %{
@@ -246,7 +251,7 @@ defmodule OffBroadway.EMQTT.Producer do
     else
       {:error, {:subscribe_failed, topic, subscribe_reason} = reason} ->
         emit_telemetry([:subscription, :error], %{
-          client_id: Keyword.get(state.config, :clientid),
+          client_id: client_id,
           producer_index: state.producer_index,
           topic: topic,
           reason: subscribe_reason
@@ -262,7 +267,7 @@ defmodule OffBroadway.EMQTT.Producer do
         )
 
         emit_telemetry([:connection, :down], %{
-          client_id: Keyword.get(state.config, :clientid),
+          client_id: client_id,
           producer_index: state.producer_index,
           reason: reason
         })
