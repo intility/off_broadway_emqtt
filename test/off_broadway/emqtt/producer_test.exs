@@ -275,7 +275,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       assert log =~ "localhost"
     end
 
-    @tag :requires_mqtt
     test "receive messages" do
       client_id = random_alphastr(10)
 
@@ -299,7 +298,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       stop_process(pid)
     end
 
-    @tag :requires_mqtt
     test "emits telemetry events on connection up" do
       self = self()
       client_id = random_alphastr(10)
@@ -332,7 +330,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       stop_process(pid)
     end
 
-    @tag :requires_mqtt
     test "stops the emqtt server when draining" do
       broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
       {:ok, pid} = start_broadway(unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
@@ -343,7 +340,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       stop_process(pid)
     end
 
-    @tag :requires_mqtt
     test "emits connection down telemetry when emqtt process dies" do
       self = self()
       client_id = random_alphastr(10)
@@ -391,7 +387,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       assert_receive {:connection_down, %{client_id: _, producer_index: 0}}, 1000
     end
 
-    @tag :requires_mqtt
     test "emits ack telemetry after successful message processing" do
       self = self()
       client_id = random_alphastr(10)
@@ -432,7 +427,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       assert_receive {:ack_event, %{count: 1}, %{status: :on_success, qos: 1}}, 2000
     end
 
-    @tag :requires_mqtt
     test "cleans up persistent_term entry on stop" do
       broadway_name = unique_name()
       broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
@@ -452,7 +446,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       assert_raise ArgumentError, fn -> :persistent_term.get(ack_ref) end
     end
 
-    @tag :requires_mqtt
     test "uses custom message_handler to transform messages" do
       client_id = random_alphastr(10)
 
@@ -483,7 +476,6 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       assert metadata.custom == true
     end
 
-    @tag :requires_mqtt
     test "emits producer, subscription, and receive_message telemetry across the lifecycle" do
       self = self()
       client_id = random_alphastr(10)

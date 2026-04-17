@@ -1,0 +1,40 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Elixir Tests
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@8538d07c58d0c44e844e68a773ec729f21ee4ed7 # v2.2.1
+    with:
+      otp-version: "28.3"
+      elixir-version: "1.19.4"
+      dialyzer: true
+      sobelow: false
+      services: |
+        - name: mosquitto
+          image: eclipse-mosquitto:2.0
+          ports: |
+            1883:1883
+            1884:1884
+            8883:8883
+            8884:8884
+            8885:8885
+          volumes: |
+            ${{ github.workspace }}/.mosquitto:/mosquitto/config
+            ${{ github.workspace }}/.mosquitto/certs:/mosquitto/certs

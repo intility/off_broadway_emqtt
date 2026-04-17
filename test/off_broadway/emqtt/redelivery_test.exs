@@ -3,8 +3,6 @@ defmodule OffBroadway.EMQTT.RedeliveryTest do
 
   alias OffBroadway.EMQTT.Test.MessageServer
 
-  @moduletag :requires_mqtt
-
   @base_config [
     host: "localhost",
     port: 1884,

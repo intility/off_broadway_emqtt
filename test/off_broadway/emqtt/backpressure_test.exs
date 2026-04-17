@@ -3,8 +3,6 @@ defmodule OffBroadway.EMQTT.BackpressureTest do
 
   alias OffBroadway.EMQTT.Test.MessageServer
 
-  @moduletag :requires_mqtt
-
   # MQTT v5 is required for broker-side subscriber flow control via Receive-Maximum.
   # When proto_ver: :v5, the producer automatically sets Receive-Maximum in the
   # CONNECT properties to match max_inflight. Without MQTT v5, the broker pushes
