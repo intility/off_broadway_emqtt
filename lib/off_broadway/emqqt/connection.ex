@@ -36,8 +36,17 @@ defmodule OffBroadway.EMQTT.Connection do
       qos_value = normalize_qos(qos)
 
       case :emqtt.subscribe(conn, {full_topic, qos_value}) do
-        {:ok, _props, _reason_codes} -> :ok
-        {:error, reason} -> throw({:subscribe_error, topic, reason})
+        {:ok, _props, reason_codes} ->
+          # SUBACK reason codes: 0/1/2 = granted QoS 0/1/2, >= 128 = failure.
+          # A successful `{:ok, ...}` response can still contain per-topic
+          # failures (e.g. not authorized, topic filter invalid).
+          case Enum.filter(reason_codes, &(&1 >= 128)) do
+            [] -> :ok
+            failures -> throw({:subscribe_error, topic, {:reason_codes, failures}})
+          end
+
+        {:error, reason} ->
+          throw({:subscribe_error, topic, reason})
       end
     end)
 

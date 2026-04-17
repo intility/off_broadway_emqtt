@@ -74,7 +74,8 @@ defmodule OffBroadway.EMQTT.Producer do
     :broadway_name,
     :message_handler,
     :client_id,
-    :ack_ref
+    :ack_ref,
+    connected?: true
   ]
 
   @impl true
@@ -199,7 +200,35 @@ defmodule OffBroadway.EMQTT.Producer do
     {:stop, {:emqtt_exit, reason}, state}
   end
 
+  # emqtt sends {:disconnected, reason_code, props} to the owner when it stays
+  # alive across reconnects (i.e. config :reconnect is set). In that mode, the
+  # emqtt process does not exit, so the :DOWN / :EXIT handlers above never fire
+  # and we would otherwise miss the telemetry event for the connection drop.
+  def handle_info({:disconnected, reason_code, _props}, %{connected?: true} = state) do
+    emit_telemetry(:down, %{
+      client_id: state.client_id,
+      producer_index: state.producer_index,
+      reason: reason_code
+    })
+
+    {:noreply, [], %{state | connected?: false}}
+  end
+
   def handle_info({:disconnected, _reason_code, _props}, state) do
+    {:noreply, [], state}
+  end
+
+  # Fired by emqtt after a successful (re)connect when reconnect is enabled.
+  def handle_info({:connected, _props}, %{connected?: false} = state) do
+    emit_telemetry(:up, %{
+      client_id: state.client_id,
+      producer_index: state.producer_index
+    })
+
+    {:noreply, [], %{state | connected?: true}}
+  end
+
+  def handle_info({:connected, _props}, state) do
     {:noreply, [], state}
   end
 
@@ -233,7 +262,9 @@ defmodule OffBroadway.EMQTT.Producer do
         %{msg | acknowledger: {Acknowledger, ack_ref, ack_data}}
 
       other ->
-        other
+        raise ArgumentError,
+              "#{inspect(message_handler)}.handle_message/3 must return %Broadway.Message{}, " <>
+                "got: #{inspect(other)}"
     end
   end
 

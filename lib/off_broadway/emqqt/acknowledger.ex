@@ -10,9 +10,14 @@ defmodule OffBroadway.EMQTT.Acknowledger do
 
   alias OffBroadway.EMQTT.Connection
 
+  @default_ack_options %{on_success: :ack, on_failure: :noop}
+
   @impl Broadway.Acknowledger
   def ack(ack_ref, successful, failed) do
-    ack_options = :persistent_term.get(ack_ref)
+    # Fall back to defaults if the producer has already erased the key. Without
+    # this, Broadway's ack path would crash during pipeline shutdown or when a
+    # producer has restarted while messages were still in flight.
+    ack_options = :persistent_term.get(ack_ref, @default_ack_options)
 
     Enum.each(successful, &ack_message(&1, ack_options, :on_success))
     Enum.each(failed, &ack_message(&1, ack_options, :on_failure))
