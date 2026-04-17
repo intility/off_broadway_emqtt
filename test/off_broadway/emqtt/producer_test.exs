@@ -298,8 +298,10 @@ defmodule OffBroadway.EMQTT.ProducerTest do
       {:ok, pid} =
         start_broadway(unique_name(), broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
+      expected_client_id = "#{client_id}_0"
+
       assert_receive {:telemetry_event, [:off_broadway_emqtt, :connection, :up], %{time: _},
-                      %{client_id: _, producer_index: 0}},
+                      %{client_id: ^expected_client_id, producer_index: 0}},
                      500
 
       :ok = :telemetry.detach("#{client_id}-events")
@@ -410,19 +412,20 @@ defmodule OffBroadway.EMQTT.ProducerTest do
     test "cleans up persistent_term entry on stop" do
       broadway_name = unique_name()
       broadway_opts = put_in(@broadway_opts, [:config, :clientid], random_alphastr(10))
+      ack_ref = {broadway_name, 0}
 
       {:ok, pid} =
         start_broadway(broadway_name, broadway_opts ++ [topics: [{"#", :at_least_once}]])
 
       # Term should exist while Broadway is running.
-      assert is_map(:persistent_term.get(broadway_name))
+      assert is_map(:persistent_term.get(ack_ref))
 
       ref = Process.monitor(pid)
       Broadway.stop(pid, :normal)
       assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2000
 
       # Term should be erased after the pipeline stops.
-      assert_raise ArgumentError, fn -> :persistent_term.get(broadway_name) end
+      assert_raise ArgumentError, fn -> :persistent_term.get(ack_ref) end
     end
 
     @tag :requires_mqtt

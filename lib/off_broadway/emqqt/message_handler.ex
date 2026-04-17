@@ -7,9 +7,9 @@ defmodule OffBroadway.EMQTT.MessageHandler do
   """
 
   @type message() :: map()
-  @type broadway() :: atom() | {:via, module(), term()}
+  @type ack_ref() :: any()
 
-  @callback handle_message(message :: message(), broadway :: broadway(), opts :: keyword()) ::
+  @callback handle_message(message :: message(), ack_ref :: ack_ref(), opts :: keyword()) ::
               Broadway.Message.t()
 
   defmacro __using__(_opts) do

@@ -73,7 +73,8 @@ defmodule OffBroadway.EMQTT.Producer do
     :producer_index,
     :broadway_name,
     :message_handler,
-    :client_id
+    :client_id,
+    :ack_ref
   ]
 
   @impl true
@@ -90,12 +91,17 @@ defmodule OffBroadway.EMQTT.Producer do
       |> maybe_set_receive_maximum(max_inflight)
 
     case Connection.start_link(emqtt_config, producer_index) do
-      {:ok, emqtt_pid} ->
+      {:ok, emqtt_pid, client_id} ->
         emqtt_ref = Process.monitor(emqtt_pid)
 
         case Connection.subscribe(emqtt_pid, opts[:shared_group], opts[:topics]) do
           :ok ->
-            client_id = Keyword.get(config, :clientid, "unknown")
+            ack_ref = {opts[:broadway_name], producer_index}
+
+            :persistent_term.put(ack_ref, %{
+              on_success: opts[:on_success],
+              on_failure: opts[:on_failure]
+            })
 
             emit_telemetry(:up, %{
               client_id: client_id,
@@ -112,7 +118,8 @@ defmodule OffBroadway.EMQTT.Producer do
               producer_index: producer_index,
               broadway_name: opts[:broadway_name],
               message_handler: opts[:message_handler],
-              client_id: client_id
+              client_id: client_id,
+              ack_ref: ack_ref
             }
 
             {:producer, state}
@@ -142,11 +149,6 @@ defmodule OffBroadway.EMQTT.Producer do
         concurrency = get_in(broadway_opts, [:producer, :concurrency]) || 1
 
         validate_shared_group!(opts[:shared_group], concurrency)
-
-        :persistent_term.put(broadway_name, %{
-          on_success: opts[:on_success],
-          on_failure: opts[:on_failure]
-        })
 
         new_opts =
           opts
@@ -217,13 +219,13 @@ defmodule OffBroadway.EMQTT.Producer do
       Connection.disconnect(state.emqtt_pid)
     end
 
-    :persistent_term.erase(state.broadway_name)
+    if state.ack_ref, do: :persistent_term.erase(state.ack_ref)
     :ok
   end
 
   defp build_broadway_message(mqtt_msg, state) do
     message_handler = get_message_handler_module(state.message_handler)
-    ack_ref = state.broadway_name
+    ack_ref = state.ack_ref
 
     case apply(message_handler, :handle_message, [mqtt_msg, ack_ref, []]) do
       %Broadway.Message{} = msg ->

@@ -12,7 +12,8 @@ defmodule OffBroadway.EMQTT.Connection do
 
   @type qos :: 0 | 1 | 2 | :at_most_once | :at_least_once | :exactly_once
 
-  @spec start_link(keyword(), non_neg_integer()) :: {:ok, pid()} | {:error, term()}
+  @spec start_link(keyword(), non_neg_integer()) ::
+          {:ok, pid(), String.t()} | {:error, term()}
   def start_link(config, producer_index) do
     config =
       config
@@ -20,9 +21,11 @@ defmodule OffBroadway.EMQTT.Connection do
       |> Keyword.put(:owner, self())
       |> update_client_id(producer_index)
 
+    effective_client_id = Keyword.fetch!(config, :clientid)
+
     with {:ok, pid} <- :emqtt.start_link(config),
          {:ok, _props} <- :emqtt.connect(pid) do
-      {:ok, pid}
+      {:ok, pid, effective_client_id}
     end
   end
 
