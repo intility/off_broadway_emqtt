@@ -19,9 +19,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # install-elixir in reusable-elixir uses setup-beam with version-type:
+        # strict, so partial versions like "1.14" or "24.3" are rejected. Use
+        # exact patch versions.
         include:
-          - elixir: "1.14"
-            otp: "24.3"
+          - elixir: "1.14.5"
+            otp: "24.3.4.17"
           - elixir: "1.19.4"
             otp: "28.3"
     permissions:
