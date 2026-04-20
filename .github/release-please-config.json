@@ -14,14 +14,7 @@
   ],
   "packages": {
     ".": {
-      "release-type": "elixir",
-      "extra-files": [
-        {
-          "type": "generic",
-          "path": "mix.exs",
-          "glob": false
-        }
-      ]
+      "release-type": "elixir"
     }
   }
 }

@@ -15,18 +15,26 @@ on:
 
 jobs:
   test:
-    name: Elixir Tests
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.14"
+            otp: "24.3"
+          - elixir: "1.19.4"
+            otp: "28.3"
     permissions:
       actions: read
       contents: read
       pull-requests: write
-    # Pinned to main: the `services:` input (used below for Mosquitto) is not yet
-    # part of a tagged release. Bump to a tag once one is cut that includes it.
-    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@f3816e9797c20a016870cb9b3949b09aac570715 # main
+    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@a563c703810d276f1bf7c89895db971c958c713e # v2.4.0
     with:
-      otp-version: "28.3"
-      elixir-version: "1.19.4"
-      dialyzer: true
+      elixir-version: ${{ matrix.elixir }}
+      otp-version: ${{ matrix.otp }}
+      # Run Dialyzer only on the latest version: PLT building is slow and
+      # running it on every matrix entry wastes CI time.
+      dialyzer: ${{ matrix.elixir == '1.19.4' }}
       sobelow: false
       # `${{ github.workspace }}` is NOT usable here: the expression is evaluated
       # at reusable-workflow-call time, before any runner is assigned, and
