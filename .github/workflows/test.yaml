@@ -15,29 +15,16 @@ on:
 
 jobs:
   test:
-    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # install-elixir in reusable-elixir uses setup-beam with version-type:
-        # strict, so partial versions like "1.14" or "24.3" are rejected. Use
-        # exact patch versions.
-        include:
-          - elixir: "1.14.5"
-            otp: "24.3.4.17"
-          - elixir: "1.19.4"
-            otp: "28.3"
+    name: Elixir Tests
     permissions:
       actions: read
       contents: read
       pull-requests: write
     uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@a563c703810d276f1bf7c89895db971c958c713e # v2.4.0
     with:
-      elixir-version: ${{ matrix.elixir }}
-      otp-version: ${{ matrix.otp }}
-      # Run Dialyzer only on the latest version: PLT building is slow and
-      # running it on every matrix entry wastes CI time.
-      dialyzer: ${{ matrix.elixir == '1.19.4' }}
+      elixir-version: "1.19.4"
+      otp-version: "28.3"
+      dialyzer: true
       sobelow: false
       # `${{ github.workspace }}` is NOT usable here: the expression is evaluated
       # at reusable-workflow-call time, before any runner is assigned, and
