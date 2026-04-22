@@ -7,9 +7,12 @@
 
 An MQTT connector based on [emqtt](https://github.com/emqx/emqtt) for [Broadway](https://github.com/dashbitco/broadway).
 
-MQTT is a lightweight publish/subscribe protocol widely used in IoT, industrial automation, and telemetry.
-This library connects a Broadway pipeline to an MQTT broker, using the MQTT protocol itself for
-backpressure and message reliability rather than an in-process buffer.
+MQTT (Message Queuing Telemetry Transport) is a lightweight messaging protocol designed for small sensors and mobile devices 
+with limited bandwidth. MQTT is commonly used in IoT (Internet of Things), home and industrial automation, healthcare and energy management
+amongst others.
+
+Several well-known systems and cloud providers provides MQTT broker services that can be used to build automation systems. These includes
+Amazon Web Services (AWS IoT), Microsoft Azure (IoT Hub, Event Grid), IBM Watson IoT Platform and Eclipse Mosquitto.
 
 ## Installation
 
@@ -89,17 +92,13 @@ QoS 0 (`:at_most_once`) provides no delivery guarantee. The broker fires and for
 ### Backpressure via max_inflight
 
 The `max_inflight` option limits how many unACKed QoS 1/2 messages the broker will send before
-waiting for acknowledgements. This is the primary backpressure mechanism: the broker stops
-delivering new messages once the window is full.
-
-For MQTT v5 (`config: [proto_ver: :v5]`), `Receive-Maximum` is set automatically in the CONNECT
-properties so the broker enforces the limit server-side.
+waiting for acknowledgements. 
 
 ### Session persistence across restarts
 
-`clean_start` defaults to `false`. When a producer restarts (after a crash or deployment), the
-broker recognises the `clientid` and redelivers any QoS 1/2 messages that were not acknowledged
-before the restart. No messages are lost between restarts.
+`clean_start` defaults to `false`. If a producer restarts, the broker recognises the `clientid` and 
+redelivers any QoS 1/2 messages that were not acknowledged before the restart. 
+No messages are lost between restarts.
 
 If you want a fresh session on every connect (discarding unACKed messages), set
 `config: [clean_start: true]` explicitly.
